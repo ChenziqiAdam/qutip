@@ -420,7 +420,7 @@ def check_bures_functions_of_fidelity(A, B):
     from . import fidelity as _fidelity
     from .core.qobj import Qobj
     from .core.operators import qeye
-    from .core.random_objects import rand_unitary
+    from .random_objects import rand_unitary
 
     dim = A.shape[0]
     try:
