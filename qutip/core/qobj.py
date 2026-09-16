@@ -17,6 +17,7 @@ from ..settings import settings
 from . import data as _data
 from qutip.typing import LayerType, DimensionLike
 import qutip
+import qutip._scientific_checkers as _sc
 from .dimensions import (
     enumerate_flat, flatten, unflatten, Dimensions, to_tensor_rep
 )
@@ -748,12 +749,16 @@ class Qobj:
     def dag(self) -> Qobj:
         """Get the Hermitian adjoint of the quantum object."""
         if self._isherm:
-            return self.copy()
-        return Qobj(_data.adjoint(self._data),
-                    dims=Dimensions(self._dims[0], self._dims[1]),
-                    isherm=self._isherm,
-                    isunitary=self._isunitary,
-                    copy=False)
+            result = self.copy()
+        else:
+            result = Qobj(_data.adjoint(self._data),
+                        dims=Dimensions(self._dims[0], self._dims[1]),
+                        isherm=self._isherm,
+                        isunitary=self._isunitary,
+                        copy=False)
+        if _sc.enabled():
+            _sc.check_dag_involution(self, result)
+        return result
 
     def conj(self) -> Qobj:
         """Get the element-wise conjugation of the quantum object."""
@@ -890,7 +895,10 @@ class Qobj:
             raise TypeError('purity is only defined for states.')
         if self.isket or self.isbra:
             return _data.norm.l2(self._data)**2
-        return _data.trace(_data.matmul(self._data, self._data)).real
+        result = _data.trace(_data.matmul(self._data, self._data)).real
+        if _sc.enabled():
+            _sc.check_purity_bound(self.shape[0], result)
+        return result
 
     def full(
         self,
@@ -1180,6 +1188,11 @@ class Qobj:
             out = self
         else:
             out = self / norm_
+        if _sc.enabled():
+            norm_kind = norm if norm is not None else (
+                'tr' if self.type in ('oper', 'super') else 'l2'
+            )
+            _sc.check_unit_idempotence(out, norm_kind)
         return out
 
     def ptrace(self, sel: int | list[int], dtype: LayerType = None) -> Qobj:
@@ -1379,11 +1392,25 @@ class Qobj:
                     raise TypeError("undefined for non-square operators")
                 dims = [new_structure, new_structure]
             data = _data.permute.dimensions(self.data, structure, order)
-            return Qobj(data,
+            result = Qobj(data,
                         dims=dims,
                         isherm=self._isherm,
                         isunitary=self._isunitary,
                         copy=False)
+            if _sc.enabled():
+                prev = getattr(self, '_scibench_permute_origin', None)
+                if prev is not None:
+                    prev_order, original = prev
+                    _sc.check_permute_composition(
+                        original, prev_order, order
+                    )
+                else:
+                    original = self
+                try:
+                    result._scibench_permute_origin = (order, original)
+                except Exception:
+                    pass
+            return result
         # If we've got here, we're some form of superoperator, so we work with
         # the flattened structure.
         flat_order = flatten(order)

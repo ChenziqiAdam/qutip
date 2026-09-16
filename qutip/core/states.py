@@ -178,7 +178,7 @@ def basis(
                              "`0 <= n < dimension`.")
 
     data = _data.one_element[dtype]((size, 1), (location, 0), 1)
-    return Qobj(
+    result = Qobj(
         data,
         dims=[dimensions, dimensions.scalar_like()],
         isherm=False,
@@ -186,6 +186,12 @@ def basis(
         copy=False,
         dtype=dtype,
     )
+    import qutip._scientific_checkers as _sc
+    if _sc.enabled() and isinstance(n, int):
+        _sc.check_basis_orthonormality(
+            None, dimensions.size, n, offset, dtype
+        )
+    return result
 
 
 def qutrit_basis(*, dtype: LayerType = None) -> list[Qobj]:
@@ -287,7 +293,13 @@ def coherent(
                 "The method 'operator' does not support offset != 0. Please"
                 " select another method or set the offset to zero."
             )
-        return (displace(N, alpha, dtype=dtype) @ basis(N, 0)).to(dtype)
+        result = (displace(N, alpha, dtype=dtype) @ basis(N, 0)).to(dtype)
+        import qutip._scientific_checkers as _sc
+        if _sc.enabled():
+            _sc.check_coherent_normalization(
+                N, alpha, result
+            )
+        return result
 
     elif method == "analytic":
         sqrtn = np.sqrt(np.arange(offset, offset+N, dtype=complex))
@@ -591,6 +603,10 @@ shape = [5, 5], type = oper, isHerm = True
                              "values 'operator' or 'analytic'")
         out = qdiags(diags, 0, dims=[[N], [N]], shape=(N, N), dtype=dtype)
         out._isherm = True
+        if method == 'operator':
+            import qutip._scientific_checkers as _sc
+            if _sc.enabled():
+                _sc.check_thermal_dm_trace(N, out)
         return out
 
 
@@ -1299,7 +1315,11 @@ def bell_state(
         Bell state
     """
     dtype = _data._parse_default_dtype(dtype, "dense")
-    return _BELL_STATES[state].copy().to(dtype)
+    result = _BELL_STATES[state].copy().to(dtype)
+    import qutip._scientific_checkers as _sc
+    if _sc.enabled():
+        _sc.check_bell_states_orthonormal(None)
+    return result
 
 
 def singlet_state(*, dtype: LayerType = None) -> Qobj:

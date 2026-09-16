@@ -53,11 +53,14 @@ def fidelity(A, B):
     >>> y = coherent_dm(5,1)
     >>> np.testing.assert_almost_equal(fidelity(x,y), 0.24104350624628332)
     """
+    orig_A, orig_B = A, B
     if A.isket or A.isbra:
         if B.isket or B.isbra:
             # The fidelity for pure states reduces to the modulus of their
             # inner product.
-            return np.abs(A.overlap(B))
+            result = np.abs(A.overlap(B))
+            _maybe_check_fidelity(orig_A, orig_B, result, operator_branch=False)
+            return result
         # Take advantage of the fact that the density operator for A
         # is a projector to avoid a sqrtm call.
         sqrtmA = A.proj()
@@ -65,7 +68,9 @@ def fidelity(A, B):
         if B.isket or B.isbra:
             # Swap the order so that we can take a more numerically
             # stable square root of B.
-            return fidelity(B, A)
+            result = fidelity(B, A)
+            _maybe_check_fidelity(orig_A, orig_B, result, operator_branch=False)
+            return result
         # If we made it here, both A and B are operators, so
         # we have to take the sqrtm of one of them.
         sqrtmA = A.sqrtm()
@@ -80,7 +85,30 @@ def fidelity(A, B):
     # can be reported.
     eig_vals = (sqrtmA * B * sqrtmA).eigenenergies()
     eig_vals_non_neg = np.where(eig_vals > 0, eig_vals, 0)
-    return np.real(np.sqrt(eig_vals_non_neg).sum())
+    result = np.real(np.sqrt(eig_vals_non_neg).sum())
+    _maybe_check_fidelity(orig_A, orig_B, result, operator_branch=True)
+    return result
+
+
+_fidelity_check_active = False
+
+
+def _maybe_check_fidelity(A, B, result, operator_branch):
+    global _fidelity_check_active
+    import qutip._scientific_checkers as _sc
+    if not _sc.enabled() or _fidelity_check_active:
+        return
+    _fidelity_check_active = True
+    try:
+        _sc.check_fidelity_symmetry(A, B, result)
+        if operator_branch and A._dims == B._dims:
+            same = (A - B).norm("max") == 0.0
+            if same:
+                _sc.check_fidelity_self_identity(A)
+    except Exception:
+        pass
+    finally:
+        _fidelity_check_active = False
 
 
 def _hilbert_space_dims(oper):
@@ -284,10 +312,31 @@ def tracedist(A, B, sparse=False, tol=0):
         B = B.proj()
     if A._dims != B._dims:
         raise TypeError("A and B do not have same dimensions.")
+    orig_A, orig_B = A, B
     diff = A - B
     diff = diff.dag() * diff
     vals = diff.eigenenergies(sparse=sparse, tol=tol)
-    return np.real(0.5 * np.sum(np.sqrt(np.abs(vals))))
+    result = np.real(0.5 * np.sum(np.sqrt(np.abs(vals))))
+    import qutip._scientific_checkers as _sc
+    global _tracedist_check_active
+    if _sc.enabled() and not _tracedist_check_active:
+        _tracedist_check_active = True
+        try:
+            _sc.check_tracedist_metric_axioms(
+                orig_A, orig_B, result
+            )
+            f_ab = fidelity(orig_A, orig_B)
+            _sc.check_fuchs_van_de_graaf(
+                orig_A, orig_B, f_ab
+            )
+        except Exception:
+            pass
+        finally:
+            _tracedist_check_active = False
+    return result
+
+
+_tracedist_check_active = False
 
 
 def hilbert_dist(A, B):
@@ -346,7 +395,20 @@ def bures_dist(A, B):
     if A._dims != B._dims:
         raise TypeError('A and B do not have same dimensions.')
     dist = np.sqrt(2 * (1 - fidelity(A, B)))
+    import qutip._scientific_checkers as _sc
+    global _bures_check_active
+    if _sc.enabled() and not _bures_check_active:
+        _bures_check_active = True
+        try:
+            _sc.check_bures_functions_of_fidelity(A, B)
+        except Exception:
+            pass
+        finally:
+            _bures_check_active = False
     return dist
+
+
+_bures_check_active = False
 
 
 def bures_angle(A, B):

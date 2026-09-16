@@ -231,7 +231,13 @@ def kraus_to_choi(kraus_ops: list[Qobj]) -> Qobj:
     choi_array = np.tensordot(
         kraus_vectors, kraus_vectors.conj(), axes=([0], [0])
     )
-    return Qobj(choi_array, choi_dims, copy=False)
+    result = Qobj(choi_array, choi_dims, copy=False)
+    import qutip._scientific_checkers as _sc
+    if _sc.enabled():
+        _sc.check_kraus_choi_kraus_action(
+            kraus_ops, result
+        )
+    return result
 
 
 def kraus_to_super(kraus_list: list[Qobj], sparse=False) -> Qobj:
@@ -445,7 +451,13 @@ def to_choi(q_oper: Qobj) -> Qobj:
         if q_oper.superrep == 'choi':
             return q_oper
         if q_oper.superrep == 'super':
-            return _super_tofrom_choi(q_oper)
+            result = _super_tofrom_choi(q_oper)
+            import qutip._scientific_checkers as _sc
+            if _sc.enabled():
+                _sc.check_choi_super_involution(
+                    q_oper, 'super'
+                )
+            return result
         if q_oper.superrep == 'chi':
             return _chi_to_choi(q_oper)
         else:
@@ -488,9 +500,21 @@ def to_chi(q_oper: Qobj) -> Qobj:
         if q_oper.superrep == 'chi':
             return q_oper
         elif q_oper.superrep == 'choi':
-            return _choi_to_chi(q_oper)
+            result = _choi_to_chi(q_oper)
+            import qutip._scientific_checkers as _sc
+            if _sc.enabled():
+                _sc.check_choi_chi_super_triangle(
+                    q_oper, 'choi'
+                )
+            return result
         elif q_oper.superrep == 'super':
-            return _choi_to_chi(to_choi(q_oper))
+            result = _choi_to_chi(to_choi(q_oper))
+            import qutip._scientific_checkers as _sc
+            if _sc.enabled():
+                _sc.check_choi_chi_super_triangle(
+                    q_oper, 'super'
+                )
+            return result
         else:
             raise TypeError(q_oper.superrep)
     elif q_oper.type == 'oper':
@@ -530,7 +554,13 @@ def to_super(q_oper: Qobj) -> Qobj:
         if q_oper.superrep == "super":
             return q_oper
         elif q_oper.superrep == 'choi':
-            return _super_tofrom_choi(q_oper)
+            result = _super_tofrom_choi(q_oper)
+            import qutip._scientific_checkers as _sc
+            if _sc.enabled():
+                _sc.check_choi_super_involution(
+                    q_oper, 'choi'
+                )
+            return result
         elif q_oper.superrep == 'chi':
             return to_super(to_choi(q_oper))
         else:

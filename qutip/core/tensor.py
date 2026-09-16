@@ -114,11 +114,18 @@ shape = [4, 4], type = oper, isHerm = True
         dims_l.append(arg._dims[0])
         dims_r.append(arg._dims[1])
 
-    return Qobj(out_data,
+    result = Qobj(out_data,
                 dims=[dims_l, dims_r],
                 isherm=isherm,
                 isunitary=isunitary,
                 copy=False)
+    if len(args) == 2 and args[0].type == 'oper' and args[1].type == 'oper':
+        import qutip._scientific_checkers as _sc
+        if _sc.enabled():
+            _sc.check_ptrace_tensor_inverse(
+                args[0], args[1], result
+            )
+    return result
 
 
 @overload
