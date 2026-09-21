@@ -197,7 +197,7 @@ def entropy_mutual(rho, selA, selB, base=np.e, sparse=False):
            entropy_vn(rhoB, base, sparse=sparse) -
            entropy_vn(rho, base, sparse=sparse))
     if _sc.enabled():
-        _sc.check_mutual_information_bounds(rho, selA, selB, out)
+        _sc.check_mutual_information_bounds(rho, selA, selB, out, base)
     return out
 
 

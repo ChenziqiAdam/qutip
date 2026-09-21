@@ -827,28 +827,53 @@ def check_concurrence_bound(result):
 
 
 @_guard("mutual_information_bounds")
-def check_mutual_information_bounds(rho, selA, selB, result):
+def check_mutual_information_bounds(rho, selA, selB, result, base=None):
     """QT-ENT-002: entropy_mutual(rho,A,B) >= 0 (subadditivity) and
     <= 2*min(S(A),S(B)) -- neither bound is locally guaranteed by the
     three-term subtraction; each of S(A), S(B), S(AB) is computed via an
     independent eigenenergies() call with its own numerical error, and
     subadditivity is a deep theorem, not an algebraic identity.
 
+    FIX (2026-09-21, round-1 triggerability): `base` must be threaded
+    through from the entropy_mutual() call site to this checker and reused
+    for the cross-check S(A)/S(B) computation. `result` (the mutual
+    information) is computed by entropy_mutual() in whatever `base` the
+    caller passed (default e, but e.g. 2 for bits); the bound
+    `2*min(S(A),S(B))` scales linearly with the same log base, since
+    S(A)=-sum(p*log_base(p)) rescales uniformly. The original code called
+    `entropy_vn(ptrace(rho, selA))` with entropy_vn's own default
+    (`base=e`) regardless of what base `result` was computed in, so a
+    base=2 mutual information (in bits) was compared against a base-e
+    (nats) bound -- units mismatch, not a real subadditivity violation.
+    Confirmed directly: entropy_mutual(bell_state('00').proj(), [0], [1],
+    base=2) gives result=2.0 exactly (the Bell state saturates the bound);
+    the base-e marginal entropies are ln(2)=0.693 each, giving a wrong
+    bound of 2*0.693=1.386 < 2.0 (spurious fire); the base-2 marginal
+    entropies are log2(2)=1.0 each, giving the correct bound
+    2*1.0=2.0 >= 2.0 (satisfied, within tolerance). `base=None` (e.g. a
+    stale caller that hasn't been updated) falls back to `np.e` to match
+    entropy_mutual's own default and preserve prior behavior for those
+    call sites.
+
     Tolerance derivation: sweep over dims [[2,2],[2,3],[3,3],[2,2,2]], 30
-    trials each, selA=[0]/selB=rest: worst observed lower-bound slack
-    (most negative MI) was 0; worst upper-bound excess was 0 (no violation
-    at any conditioning tried in this sweep). tol = 200*eps64*cond,
-    cond taken as max(1, 1/min_nonzero_eigenvalue-scale) approximated here
-    by a fixed generous constant since a tight cond estimate would require
-    re-deriving each entropy call's own conditioning; this is recorded as a
-    conservative choice, not a precise derivation.
+    trials each, selA=[0]/selB=rest, bases {e, 2}: worst observed
+    lower-bound slack (most negative MI) was 0; worst upper-bound excess
+    was 0 (no violation observed at any conditioning or base tried once
+    the base mismatch above was fixed). tol = 200*eps64*cond, cond taken
+    as max(1, 1/min_nonzero_eigenvalue-scale) approximated here by a fixed
+    generous constant since a tight cond estimate would require
+    re-deriving each entropy call's own conditioning; this is recorded as
+    a conservative choice, not a precise derivation.
     """
+    import numpy as _np
     from .core.qobj import ptrace as _ptrace
     from .entropy import entropy_vn as _entropy_vn
 
+    if base is None:
+        base = _np.e
     tol = 200 * eps64
-    sA = _entropy_vn(_ptrace(rho, selA))
-    sB = _entropy_vn(_ptrace(rho, selB))
+    sA = _entropy_vn(_ptrace(rho, selA), base)
+    sB = _entropy_vn(_ptrace(rho, selB), base)
     lower_bad = result < -tol
     upper_bad = result > 2 * min(sA, sB) + tol
     trigger_if(lower_bad or upper_bad, "QT-ENT-002")
