@@ -21,6 +21,7 @@ from .qobj import Qobj
 from .dimensions import Space
 from .. import settings
 from ..typing import DimensionLike, SpaceLike, LayerType
+import qutip._scientific_checkers as _sc
 
 def qdiags(
     diagonals: np.typing.ArrayLike | list[np.typing.ArrayLike],
@@ -159,11 +160,12 @@ shape = [3, 3], type = oper, isHerm = True
         raise ValueError('j must be a non-negative integer or half-integer')
 
     if not which:
-        return (
-            jmat(j, 'x', dtype=dtype),
-            jmat(j, 'y', dtype=dtype),
-            jmat(j, 'z', dtype=dtype)
-        )
+        Jx = jmat(j, 'x', dtype=dtype)
+        Jy = jmat(j, 'y', dtype=dtype)
+        Jz = jmat(j, 'z', dtype=dtype)
+        if _sc.enabled():
+            _sc.check_jmat_commutation(j, Jx, Jy, Jz)
+        return (Jx, Jy, Jz)
 
     dims = [[int(2*j + 1)]]*2
     if which == '+':
@@ -501,7 +503,11 @@ def destroy(N: int, offset: int = 0, *, dtype: LayerType = None) -> Qobj:
     if not isinstance(N, (int, np.integer)):  # raise error if N not integer
         raise ValueError("Hilbert space dimension must be integer value")
     data = np.sqrt(np.arange(offset+1, N+offset, dtype=complex))
-    return qdiags(data, 1, dtype=dtype)
+    result = qdiags(data, 1, dtype=dtype)
+    if _sc.enabled():
+        result_create = create(N, offset=offset, dtype=dtype)
+        _sc.check_ladder_ccr(N, result, result_create)
+    return result
 
 
 def create(N: int, offset: int = 0, *, dtype: LayerType = None) -> Qobj:
@@ -995,6 +1001,8 @@ shape = [4, 4], type = oper, isHerm = False
     out = op.expm(dtype=dtype)
     out.isherm = (N == 2) or (z == 0.)
     out._isunitary = True
+    if _sc.enabled():
+        _sc.check_expm_generator_unitary(N, z, out, "QT-OPS-005")
     return out
 
 
@@ -1074,6 +1082,8 @@ shape = [4, 4], type = oper, isHerm = False
     out = (alpha * a.dag() - np.conj(alpha) * a).expm(dtype=dtype)
     out.isherm = (alpha == 0.)
     out._isunitary = True
+    if _sc.enabled():
+        _sc.check_expm_generator_unitary(N, alpha, out, "QT-OPS-005")
     return out
 
 
@@ -1283,7 +1293,10 @@ def qft(dimensions: SpaceLike, *, dtype: LayerType = None) -> Qobj:
     arr = np.arange(N2)
     L, M = np.meshgrid(arr, arr)
     data = np.exp(phase * (L * M)) / np.sqrt(N2)
-    return Qobj(data, isherm=False, isunitary=True, dims=dims).to(dtype)
+    result = Qobj(data, isherm=False, isunitary=True, dims=dims).to(dtype)
+    if _sc.enabled():
+        _sc.check_qft_unitarity(N2, result)
+    return result
 
 
 def swap(N: int, M: int, *, dtype: LayerType = None) -> Qobj:
@@ -1308,9 +1321,12 @@ def swap(N: int, M: int, *, dtype: LayerType = None) -> Qobj:
     data = np.ones(N * M)
     rows = np.arange(N * M + 1)  # last entry is nnz
     cols = np.ravel(M * np.arange(N)[None, :] + np.arange(M)[:, None])
-    return Qobj(
+    result = Qobj(
         _data.CSR((data, cols, rows), (N * M, N * M)),
         dims=[[M, N], [N, M]],
         isherm=(N == M),
         isunitary=True,
     ).to(dtype)
+    if _sc.enabled():
+        _sc.check_swap_action(N, M, result)
+    return result

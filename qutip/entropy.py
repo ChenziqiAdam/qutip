@@ -8,6 +8,7 @@ from . import (ptrace, tensor, sigmay, ket2dm,
                expand_operator)
 from .core import data as _data
 from .core.dimensions import Dimensions
+import qutip._scientific_checkers as _sc
 
 
 def entropy_vn(rho, base=np.e, sparse=False):
@@ -118,7 +119,10 @@ def concurrence(rho):
 
     sqrt_evals = np.sqrt(evals)
     lsum = sqrt_evals[3] - sqrt_evals[2] - sqrt_evals[1] - sqrt_evals[0]
-    return np.maximum(0, lsum)
+    result = np.maximum(0, lsum)
+    if _sc.enabled():
+        _sc.check_concurrence_bound(result)
+    return result
 
 
 def negativity(rho, subsys, method='tracenorm', logarithmic=False):
@@ -192,6 +196,8 @@ def entropy_mutual(rho, selA, selB, base=np.e, sparse=False):
     out = (entropy_vn(rhoA, base, sparse=sparse) +
            entropy_vn(rhoB, base, sparse=sparse) -
            entropy_vn(rho, base, sparse=sparse))
+    if _sc.enabled():
+        _sc.check_mutual_information_bounds(rho, selA, selB, out)
     return out
 
 

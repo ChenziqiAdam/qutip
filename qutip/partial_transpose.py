@@ -7,6 +7,7 @@ from . import (
     Qobj, state_index_number, state_number_index, state_number_enumerate,
 )
 from .core.dimensions import flatten
+import qutip._scientific_checkers as _sc
 
 
 def partial_transpose(rho, mask, method='dense'):
@@ -45,9 +46,13 @@ def partial_transpose(rho, mask, method='dense'):
     mask = [int(i) for i in mask]
 
     if method == 'sparse':
-        return _partial_transpose_sparse(rho, mask)
+        result = _partial_transpose_sparse(rho, mask)
     else:
-        return _partial_transpose_dense(rho, mask)
+        result = _partial_transpose_dense(rho, mask)
+    if _sc.enabled():
+        _sc.check_partial_transpose_methods(rho, mask)
+        _sc.check_partial_transpose_trace(rho, result)
+    return result
 
 
 def _partial_transpose_dense(rho, mask):

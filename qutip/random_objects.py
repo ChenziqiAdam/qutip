@@ -23,6 +23,7 @@ from . import Qobj, create, destroy, jmat, basis, to_super, to_choi, to_chi
 from .core import data as _data
 from .core.dimensions import Dimensions, Space, SuperSpace
 from .typing import SpaceLike, LayerType
+import qutip._scientific_checkers as _sc
 
 
 _RAND = default_rng()
@@ -389,7 +390,10 @@ def rand_unitary(
     merged = _merge_shuffle_blocks(blocks, generator)
 
     mat = Qobj(merged, dims=dims, isunitary=True, copy=False)
-    return mat.to(dtype)
+    result = mat.to(dtype)
+    if _sc.enabled():
+        _sc.check_rand_unitary(N, result)
+    return result
 
 
 def _rand_unitary_haar(N, generator):
@@ -606,7 +610,10 @@ default: "ginibre"
         H = _merge_shuffle_blocks(blocks, generator)
         H /= H.trace()
 
-    return Qobj(H, dims=dims, isherm=True, copy=False).to(dtype)
+    result = Qobj(H, dims=dims, isherm=True, copy=False).to(dtype)
+    if _sc.enabled():
+        _sc.check_rand_dm_validity(N, result)
+    return result
 
 
 def _rand_dm_ginibre(N, rank, generator):
@@ -685,7 +692,10 @@ def rand_kraus_map(
     big_unitary = rand_unitary(N ** 3, seed=seed, dtype=dtype).full()
     orthog_cols = np.array(big_unitary[:, :N])
     oper_list = np.reshape(orthog_cols, (N ** 2, N, N))
-    return [Qobj(x, dims=dims, copy=False).to(dtype) for x in oper_list]
+    result = [Qobj(x, dims=dims, copy=False).to(dtype) for x in oper_list]
+    if _sc.enabled():
+        _sc.check_kraus_completeness(N, result)
+    return result
 
 
 def rand_super(
@@ -827,6 +837,8 @@ def rand_super_bcsz(
         # with left and right compound indices, each representing
         # left and right indices on the underlying Hilbert space).
         D = Qobj(np.dot(Z, np.dot(XXdag, Z)), dims=tmp_dims)
+        if _sc.enabled():
+            _sc.check_bcsz_trace_preservation(N, D)
     else:
         D = N * Qobj(XXdag / np.trace(XXdag), dims=tmp_dims)
 
@@ -903,4 +915,7 @@ def rand_stochastic(
         M.data[row_start:row_end] /= row_sum
     if kind == 'left':
         M = M.transpose()
-    return Qobj(M, dims=dims).to(dtype)
+    result = Qobj(M, dims=dims).to(dtype)
+    if _sc.enabled():
+        _sc.check_rand_stochastic_normalization(N, kind, result)
+    return result

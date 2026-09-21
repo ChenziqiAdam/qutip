@@ -523,4 +523,9 @@ def expand_operator(
     for i, ind in enumerate(rest_pos):
         new_order[ind] = rest_qubits[i]
     id_list = [identity(dims[i]) for i in rest_pos]
-    return tensor([oper] + id_list).permute(new_order).to(dtype)
+    result = tensor([oper] + id_list).permute(new_order).to(dtype)
+    if isinstance(result, Qobj):
+        import qutip._scientific_checkers as _sc
+        if _sc.enabled():
+            _sc.check_expand_operator_ptrace_inverse(oper, dims, targets, result)
+    return result

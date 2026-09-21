@@ -13,6 +13,7 @@ from .qobj import Qobj
 from .cy.qobjevo import QobjEvo
 from . import data as _data
 from .dimensions import Compound, Dimensions, Field, SuperSpace, Space
+import qutip._scientific_checkers as _sc
 
 
 def _map_over_compound_operators(f):
@@ -280,9 +281,13 @@ def vector_to_operator(op: Qobj) -> Qobj:
     if op.superrep != "super":
         raise TypeError("only defined for operator-kets in super format")
     dims = op._dims[0].oper
-    return Qobj(unstack_columns(op.data, dims.shape),
+    result = Qobj(unstack_columns(op.data, dims.shape),
                 dims=dims,
                 copy=False)
+    if _sc.enabled():
+        roundtrip_vec = operator_to_vector(result)
+        _sc.check_operator_vector_round_trip(op, roundtrip_vec)
+    return result
 
 
 QobjOrArray = TypeVar("QobjOrArray", Qobj, np.ndarray)
@@ -407,11 +412,14 @@ def spre(A: AnyQobj) -> AnyQobj:
     if not A.isoper:
         raise TypeError('Input is not a quantum operator')
     data = _data.kron(_data.identity_like(A.data), A.data)
-    return Qobj(data,
+    result = Qobj(data,
                 dims=[A._dims, A._dims],
                 superrep='super',
                 isherm=A._isherm,
                 copy=False)
+    if _sc.enabled():
+        _sc.check_spre_spost_commutation(A, A)
+    return result
 
 
 @overload
@@ -592,6 +600,9 @@ def reshuffle(q_oper: Qobj) -> Qobj:
                         "or type='operator-ket'.")
 
     if isinstance(q_oper._dims[0], Compound):
-        return _to_super_of_tensor(q_oper)
+        result = _to_super_of_tensor(q_oper)
     else:
-        return _to_tensor_of_super(q_oper)
+        result = _to_tensor_of_super(q_oper)
+    if _sc.enabled():
+        _sc.check_reshuffle_involution(q_oper, result)
+    return result

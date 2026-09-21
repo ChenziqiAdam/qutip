@@ -2,6 +2,7 @@ from qutip import liouvillian, lindblad_dissipator, Qobj, qzero_like, qeye_like
 from qutip import vector_to_operator, operator_to_vector, hilbert_dist
 from qutip import settings, CoreOptions
 import qutip.core.data as _data
+import qutip._scientific_checkers as _sc
 import numpy as np
 import scipy.sparse.csgraph
 import scipy.sparse.linalg
@@ -165,9 +166,17 @@ def steadystate(A, c_ops=[], *, method='direct', solver=None, **kwargs):
     kwargs.pop("mtol", None)
 
     if method == "eigen":
-        return _steadystate_eigen(A, **kwargs)
+        rho_ss = _steadystate_eigen(A, **kwargs)
+        if _sc.enabled():
+            _sc.check_steadystate_residual(A, method, rho_ss)
+            _sc.check_steadystate_physicality(method, rho_ss)
+        return rho_ss
     if method == "svd":
-        return _steadystate_svd(A, **kwargs)
+        rho_ss = _steadystate_svd(A, **kwargs)
+        if _sc.enabled():
+            _sc.check_steadystate_residual(A, method, rho_ss)
+            _sc.check_steadystate_physicality(method, rho_ss)
+        return rho_ss
 
     # We want to be able to use this without having to know what data type the
     # liouvillian uses. For extra data types (tensorflow) we can expect
@@ -211,6 +220,10 @@ def steadystate(A, c_ops=[], *, method='direct', solver=None, **kwargs):
         rho_ss = _steadystate_expm(A, **kwargs)
     else:
         raise ValueError(f"method {method} not supported.")
+
+    if _sc.enabled():
+        _sc.check_steadystate_residual(A, method, rho_ss)
+        _sc.check_steadystate_physicality(method, rho_ss)
 
     return rho_ss
 
