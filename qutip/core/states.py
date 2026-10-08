@@ -147,6 +147,7 @@ def basis(
     dtype = _data._parse_default_dtype(dtype, "dense")
     # Promote all parameters to Space to simplify later logic.
     dimensions = _to_space(dimensions)
+    _n_in = n  # n is promoted to a list below; keep the caller's value for the QT-STA-001 hook
 
     size = dimensions.size
     if n is None:
@@ -187,9 +188,9 @@ def basis(
         dtype=dtype,
     )
     import qutip._scientific_checkers as _sc
-    if _sc.enabled() and isinstance(n, int):
+    if _sc.enabled() and isinstance(_n_in, (int, np.integer)):
         _sc.check_basis_orthonormality(
-            None, dimensions.size, n, offset, dtype
+            None, dimensions.size, int(_n_in), offset, dtype
         )
     return result
 
