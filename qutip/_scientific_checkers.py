@@ -514,11 +514,15 @@ def check_jmat_commutation(j, Jx, Jy, Jz):
 
 
 @_guard("ladder_operator_ccr")
-def check_ladder_ccr(N, result_destroy, result_create):
+def check_ladder_ccr(N, result_destroy, result_create, offset=0):
     """QT-OPS-002: [a, a^dagger] = I on the interior (Fock levels 0..N-2)
     of a finite truncation; the top level (N-1) is the well-known finite-
     truncation boundary artifact and is explicitly excluded from the
     precondition, not silently special-cased.
+
+    With a nonzero ``offset`` the ladder acts on levels offset..offset+N-1
+    and [a, a^dagger]_00 = offset+1 (the lowest level has no lower
+    neighbour); that bottom boundary level is excluded as well.
 
     Precondition: N >= 2. create()/destroy() are built via two independent
     qdiags calls (not create = destroy().dag()), so interior CCR agreement
@@ -534,8 +538,11 @@ def check_ladder_ccr(N, result_destroy, result_create):
 
     comm = result_destroy @ result_create - result_create @ result_destroy
     full = comm.full()
-    block = full[: N - 1, : N - 1]
-    diff = float(_np.abs(block - _np.eye(N - 1)).max())
+    lo = 0 if offset == 0 else 1
+    if N - 1 <= lo:
+        return
+    block = full[lo: N - 1, lo: N - 1]
+    diff = float(_np.abs(block - _np.eye(N - 1 - lo)).max())
     tol = 50 * eps64 * N
     trigger_if(diff > tol, "QT-OPS-002")
 
@@ -1006,6 +1013,11 @@ def check_expand_operator_ptrace_inverse(oper, dims, targets, result):
     """
     import numpy as _np
 
+    # ptrace returns the kept subsystems in ascending order, so the identity
+    # below only applies when the targets are given in ascending order.
+    target_list = [targets] if isinstance(targets, (int, _np.integer)) else list(targets)
+    if target_list != sorted(set(target_list)):
+        return
     fulldim = int(_np.prod(dims))
     opdim = oper.shape[0]
     scale_dims = fulldim // opdim

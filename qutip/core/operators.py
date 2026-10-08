@@ -506,7 +506,7 @@ def destroy(N: int, offset: int = 0, *, dtype: LayerType = None) -> Qobj:
     result = qdiags(data, 1, dtype=dtype)
     if _sc.enabled():
         result_create = create(N, offset=offset, dtype=dtype)
-        _sc.check_ladder_ccr(N, result, result_create)
+        _sc.check_ladder_ccr(N, result, result_create, offset)
     return result
 
 
