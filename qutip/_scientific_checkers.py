@@ -18,9 +18,11 @@ cross-check, and generic software-correctness assertions are explicitly out
 of scope and are not instrumented here.
 """
 
+import contextlib
 import json
 import os
 import threading
+import warnings
 
 eps64 = 2.220446049250313e-16
 
@@ -61,6 +63,32 @@ def _within(a, b, atol):
     return abs(complex(a) - complex(b)) <= atol
 
 
+@contextlib.contextmanager
+def _quiet():
+    """Checker re-calls must not leak warnings or floating-point errors to user code.
+
+    The ignore filter is inserted into ``warnings.filters`` directly instead of
+    using ``catch_warnings``: the latter invalidates every module's
+    once-per-location warning registry, which would make production warnings
+    repeat after each checker call.
+    """
+    flt = ("ignore", None, Warning, None, 0)
+    warnings.filters.insert(0, flt)
+    try:
+        try:
+            import numpy as _np
+        except Exception:
+            yield
+        else:
+            with _np.errstate(all="ignore"):
+                yield
+    finally:
+        try:
+            warnings.filters.remove(flt)
+        except ValueError:
+            pass
+
+
 def _guard(checker_id):
     """Wrap a checker body so an internal error never disturbs production.
 
@@ -74,7 +102,8 @@ def _guard(checker_id):
                 return
             _active.flag = True
             try:
-                func(*args, **kwargs)
+                with _quiet():
+                    func(*args, **kwargs)
             except Exception:
                 pass
             finally:
