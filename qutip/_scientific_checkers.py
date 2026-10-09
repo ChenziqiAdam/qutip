@@ -395,6 +395,14 @@ def check_choi_chi_super_triangle(original, outrep):
 
 # --- metrics.py: quantum information metrics --------------------------------
 
+def _is_state_like(*qobjs):
+    """True when every argument is a ket, bra or oper Qobj. The metric laws
+    are stated for those types only; qutip's process_fidelity calls fidelity
+    on super-typed Choi matrices, which are outside the stated precondition.
+    """
+    return all(getattr(q, "type", None) in ("ket", "bra", "oper") for q in qobjs)
+
+
 @_guard("fidelity_symmetry")
 def check_fidelity_symmetry(A, B, f_ab):
     """QT-MET-001: fidelity(A, B) == fidelity(B, A) -- symmetric by
@@ -403,6 +411,8 @@ def check_fidelity_symmetry(A, B, f_ab):
     """
     from . import fidelity as _fidelity
 
+    if not _is_state_like(A, B):
+        return
     f_ba = _fidelity(B, A)
     tol = 500 * eps64
     trigger_if(abs(f_ab - f_ba) > tol, "QT-MET-001")
@@ -415,6 +425,8 @@ def check_fidelity_self_identity(A):
     """
     from . import fidelity as _fidelity
 
+    if not _is_state_like(A):
+        return
     f_aa = _fidelity(A, A)
     tol = 2000 * eps64
     trigger_if(abs(f_aa - 1) > tol, "QT-MET-002")
@@ -429,6 +441,8 @@ def check_tracedist_metric_axioms(A, B, d_ab):
     """
     from . import tracedist as _tracedist
 
+    if not _is_state_like(A, B):
+        return
     tol = 100 * eps64
     trigger_if(abs(_tracedist(A, A)) > tol, "QT-MET-003")
     d_ba = _tracedist(B, A)
@@ -445,6 +459,8 @@ def check_fuchs_van_de_graaf(A, B, f_ab):
     from . import tracedist as _tracedist
     import math
 
+    if not _is_state_like(A, B):
+        return
     d_ab = _tracedist(A, B)
     lo = 1 - f_ab
     f_clamped = min(1.0, max(0.0, f_ab))
@@ -469,6 +485,8 @@ def check_bures_functions_of_fidelity(A, B):
     from .core.operators import qeye
     from .random_objects import rand_unitary
 
+    if not _is_state_like(A, B):
+        return
     dim = A.shape[0]
     try:
         U = rand_unitary(dim)
@@ -940,7 +958,20 @@ def check_mutual_information_bounds(rho, selA, selB, result, base=None):
 
 # --- solver/steadystate.py: steady-state solvers ----------------------------
 
-_SS_RESIDUAL_METHODS = ("direct", "iterative", "eigen", "svd", "power")
+# "iterative" is excluded like "propagator": its accuracy is set by the
+# caller's tol/atol/rtol (default residual ~3e-5), so a fixed floating-point
+# tolerance would only re-observe the user's own stopping criterion.
+_SS_RESIDUAL_METHODS = ("direct", "eigen", "svd", "power")
+
+
+def _ss_size_factor(n):
+    """Round-off growth with the Hilbert dimension n. The original sweep
+    covered n <= 4 only; a later sweep to n = 60 (oscillator and random
+    Liouvillians, 4 methods) gave worst ratios to eps of 1771 (eigen PSD),
+    1116 (direct trace) and 556 (power residual) at n = 60, and 4700 (eigen
+    PSD) in the n = 30 upstream test, so the 200*eps base tolerance is
+    multiplied by (n/4)**2 for n > 4."""
+    return max(1.0, (n / 4.0) ** 2)
 
 
 @_guard("steadystate_residual")
@@ -967,7 +998,7 @@ def check_steadystate_residual(A, method, result):
 
     vec = _op_to_vec(result)
     residual = (A @ vec).norm("max")
-    scale = max(1.0, A.norm("max"))
+    scale = max(1.0, A.norm("max")) * _ss_size_factor(result.shape[0])
     tol = 200 * eps64 * scale
     trigger_if(residual > tol, "QT-SS-001")
 
@@ -987,8 +1018,8 @@ def check_steadystate_physicality(method, result):
     """
     if method not in _SS_RESIDUAL_METHODS:
         return
-    tol_tr = 200 * eps64
-    tol_psd = 200 * eps64
+    tol_tr = 200 * eps64 * _ss_size_factor(result.shape[0])
+    tol_psd = tol_tr
     tr_bad = abs(result.tr() - 1) > tol_tr
     evals = result.eigenenergies()
     psd_bad = float(evals.min()) < -tol_psd
