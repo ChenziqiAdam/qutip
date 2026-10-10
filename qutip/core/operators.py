@@ -1002,7 +1002,8 @@ shape = [4, 4], type = oper, isHerm = False
     out.isherm = (N == 2) or (z == 0.)
     out._isunitary = True
     if _sc.enabled():
-        _sc.check_expm_generator_unitary(N, z, out, "QT-OPS-005")
+        _sc.check_expm_generator_unitary(
+            N, z, out, "QT-OPS-005", offset=offset, kind="squeeze")
     return out
 
 
@@ -1083,7 +1084,8 @@ shape = [4, 4], type = oper, isHerm = False
     out.isherm = (alpha == 0.)
     out._isunitary = True
     if _sc.enabled():
-        _sc.check_expm_generator_unitary(N, alpha, out, "QT-OPS-005")
+        _sc.check_expm_generator_unitary(
+            N, alpha, out, "QT-OPS-005", offset=offset, kind="displace")
     return out
 
 

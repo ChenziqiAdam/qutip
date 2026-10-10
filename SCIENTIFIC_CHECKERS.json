@@ -40,7 +40,7 @@
       "symbol": "Qobj.unit"
     },
     {
-      "alarm": "either recovered factor differs from the expected Tr(other)*factor by more than 50*eps64*n*m*scale",
+      "alarm": "either recovered factor differs from the expected Tr(other)*factor by more than 50*eps64*n*m*scale, scale = max(1, max|Tr(other)*factor|, max|factor|*sum_k|diag(other)_kk|)",
       "family": "ptrace_tensor_inverse",
       "id": "QT-QOBJ-004",
       "invariant": "tensor(A, B).ptrace([0]) == Tr(B)*A and tensor(A, B).ptrace([1]) == Tr(A)*B",
@@ -76,7 +76,7 @@
       "symbol": "basis / fock"
     },
     {
-      "alarm": "abs(result.norm() - 1) exceeds 200*eps64",
+      "alarm": "abs(result.norm() - 1) exceeds 200*eps64*max(1,|alpha|)",
       "family": "coherent_state_normalization",
       "id": "QT-STA-002",
       "invariant": "coherent(N, alpha, method='operator').norm() == 1 for all valid inputs",
@@ -148,7 +148,7 @@
       "symbol": "to_chi (paired with to_choi/to_super)"
     },
     {
-      "alarm": "abs(fidelity(A,B) - fidelity(B,A)) exceeds 500*eps64",
+      "alarm": "abs(fidelity(A,B) - fidelity(B,A)) exceeds 500*eps64 (+ 2x conditioning term, see tolerance_derivation)",
       "family": "fidelity_symmetry",
       "id": "QT-MET-001",
       "invariant": "fidelity(A, B) == fidelity(B, A)",
@@ -160,7 +160,7 @@
       "symbol": "fidelity"
     },
     {
-      "alarm": "abs(fidelity(A,A) - 1) exceeds 2000*eps64",
+      "alarm": "abs(fidelity(A,A) - 1) exceeds 2000*eps64 (+ 2x conditioning term, see tolerance_derivation)",
       "family": "fidelity_self_identity",
       "id": "QT-MET-002",
       "invariant": "fidelity(A, A) == 1",
@@ -196,7 +196,7 @@
       "symbol": "tracedist (paired with fidelity)"
     },
     {
-      "alarm": "abs(bures_dist(A,B) - bures_dist(conjugated)) exceeds 2000*eps64, or (fidelity away from 1) abs(bures_angle difference) exceeds 2000*eps64",
+      "alarm": "abs(bures_dist(A,B) - bures_dist(conjugated)) exceeds 2000*eps64, or (fidelity away from 1) abs(bures_angle difference) exceeds 2000*eps64 (each plus the fidelity conditioning term amplified by 1/max(distance or sin(angle), sqrt(term)), see tolerance_derivation)",
       "family": "bures_functions_of_fidelity_only",
       "id": "QT-MET-005",
       "invariant": "bures_dist(A,B) == bures_dist(UAU^dag, UBU^dag) and bures_angle(A,B) == bures_angle(UAU^dag, UBU^dag), since fidelity is unitarily invariant",
@@ -220,7 +220,7 @@
       "symbol": "jmat"
     },
     {
-      "alarm": "(comm_block - eye_block).norm('max') exceeds 50*eps64*N",
+      "alarm": "(comm_block - eye_block).norm('max') exceeds 50*eps64*(N+offset)",
       "family": "ladder_operator_ccr",
       "id": "QT-OPS-002",
       "invariant": "(destroy(N) @ create(N) - create(N) @ destroy(N)) restricted to rows/columns 0..N-2 equals the identity on that block",
@@ -256,7 +256,7 @@
       "symbol": "swap"
     },
     {
-      "alarm": "(U.dag() @ U - qeye(N)).norm('max') exceeds 50*eps64*N*max(1,|alpha_or_z|)",
+      "alarm": "(U.dag() @ U - qeye(N)).norm('max') exceeds 50*eps64*N*max(1,|m|,g) with g=|m|*sqrt((offset+N)/N) (displace) or |m|*(offset+N)/N (squeeze)",
       "family": "expm_generator_unitarity",
       "id": "QT-OPS-005",
       "invariant": "U.dag() @ U == qeye(N) for U = displace(N, alpha) or U = squeeze(N, z), since the exponential of any anti-Hermitian generator is exactly unitary in exact arithmetic",
@@ -352,7 +352,7 @@
       "symbol": "rand_stochastic"
     },
     {
-      "alarm": "(Tr_out(D) - qeye(N)).norm('max') exceeds 200*eps64*N^2, where Tr_out uses np.einsum('ijik->jk', D.full().reshape(N,N,N,N)) -- the same contraction pattern the production code itself uses to compute Y",
+      "alarm": "(Tr_out(D) - qeye(N)).norm('max') exceeds 200*eps64*N^2*max(1,cond(Y)/100), where Tr_out uses np.einsum('ijik->jk', D.full().reshape(N,N,N,N)) -- the same contraction pattern the production code itself uses to compute Y",
       "family": "bcsz_trace_preservation",
       "id": "QT-RND-005",
       "invariant": "the partial trace over the output space of the intermediate (pre-permute) Choi-form matrix D equals the identity on the input space",
@@ -412,7 +412,7 @@
       "symbol": "entropy_mutual"
     },
     {
-      "alarm": "(A @ operator_to_vector(rho_ss)).norm('max') exceeds 200*eps64*max(1,A.norm('max'))*max(1,(n/4)**2), n the Hilbert dimension of rho_ss",
+      "alarm": "(A @ operator_to_vector(rho_ss)).norm('max') exceeds 200*eps64*max(1,A.norm('max'))*max(1,(n/4)**2), n the Hilbert dimension of rho_ss, and the forward error residual/sigma_gap exceeds the conditioning tolerance (see tolerance_derivation)",
       "family": "steadystate_residual",
       "id": "QT-SS-001",
       "invariant": "(A @ operator_to_vector(rho_ss)).norm('max') is small relative to the scale of A",
@@ -436,7 +436,7 @@
       "symbol": "steadystate"
     },
     {
-      "alarm": "(recovered - scale*oper).norm('max') exceeds 100*eps64*prod(dims)",
+      "alarm": "(recovered - scale*oper).norm('max') exceeds 100*eps64*prod(dims)*max(1,max|scale*oper|)",
       "family": "expand_operator_ptrace_inverse",
       "id": "QT-TEN-001",
       "invariant": "expand_operator(oper, dims, targets).ptrace(targets) == prod(dims[i] for i not in targets) * oper",

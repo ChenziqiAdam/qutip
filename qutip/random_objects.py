@@ -838,7 +838,7 @@ def rand_super_bcsz(
         # left and right indices on the underlying Hilbert space).
         D = Qobj(np.dot(Z, np.dot(XXdag, Z)), dims=tmp_dims)
         if _sc.enabled():
-            _sc.check_bcsz_trace_preservation(N, D)
+            _sc.check_bcsz_trace_preservation(N, D, Y)
     else:
         D = N * Qobj(XXdag / np.trace(XXdag), dims=tmp_dims)
 

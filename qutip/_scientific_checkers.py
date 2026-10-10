@@ -159,6 +159,18 @@ def check_unit_idempotence(result, norm_kind):
     again = result.unit(norm=norm_kind)
     n2 = again.norm(norm=norm_kind)
     tol = 50 * eps64
+    if norm_kind == "tr" and len(result.shape) == 2 and max(result.shape) <= 128:
+        # Trace norm of a sparse operator is sum(sqrt(eig(M M^dag))); each
+        # retained singular value s_i carries rounding error ~ eps*smax^2/(2 s_i)
+        # (conditioning, not a defect). Numerically zero singular values are
+        # excluded so a rank-deficient operator (exact trace norm via SVD,
+        # sqrt(eps)-level error through M M^dag) still alarms.
+        import numpy as np
+        sv = np.linalg.svd(result.full(), compute_uv=False)
+        smax = float(sv.max()) if sv.size else 0.0
+        if smax > 0:
+            pos = sv[sv > max(result.shape) * eps64 * smax]
+            tol += 2 * eps64 * smax ** 2 * float(np.sum(1.0 / pos))
     trigger_if(abs(n2 - 1) > tol, "QT-QOBJ-003")
 
 
@@ -173,14 +185,22 @@ def check_ptrace_tensor_inverse(A, B, product):
     product's ptrace().
     """
     n, m = A.shape[0], B.shape[0]
+    # Conditioning of the trace sum: the float summation error of Tr(B) is
+    # ~eps*sum_k|b_kk|, so when the spectrum cancels (sum|b_kk| >> |Tr B|)
+    # the tolerance must scale with sum|b_kk|*max|A|, not with |Tr B|*max|A|.
+    import numpy as _np
+    absdiag_A = float(_np.abs(_np.diag(A.full())).sum())
+    absdiag_B = float(_np.abs(_np.diag(B.full())).sum())
     rec0 = product.ptrace([0])
     exp0 = A * B.tr()
-    tol0 = 50 * eps64 * n * m * max(1.0, exp0.norm("max"))
+    tol0 = 50 * eps64 * n * m * max(
+        1.0, exp0.norm("max"), A.norm("max") * absdiag_B)
     trigger_if((rec0 - exp0).norm("max") > tol0, "QT-QOBJ-004")
 
     rec1 = product.ptrace([1])
     exp1 = B * A.tr()
-    tol1 = 50 * eps64 * n * m * max(1.0, exp1.norm("max"))
+    tol1 = 50 * eps64 * n * m * max(
+        1.0, exp1.norm("max"), B.norm("max") * absdiag_A)
     trigger_if((rec1 - exp1).norm("max") > tol1, "QT-QOBJ-004")
 
 
@@ -235,7 +255,10 @@ def check_coherent_normalization(N, alpha, result):
     unit-norm for any N, alpha -- the docstring's unconditional guarantee.
     """
     diff = abs(result.norm() - 1)
-    tol = 200 * eps64
+    # expm of a generator of norm ~|alpha|*sqrt(N) loses ~|alpha|*eps (observed
+    # 0.4*|alpha|*eps against a 60-digit reference); the 200*eps sweep was
+    # taken at |alpha| <= 9, so scale linearly beyond |alpha| = 1.
+    tol = 200 * eps64 * max(1.0, abs(alpha))
     trigger_if(diff > tol, "QT-STA-002")
 
 
@@ -403,6 +426,42 @@ def _is_state_like(*qobjs):
     return all(getattr(q, "type", None) in ("ket", "bra", "oper") for q in qobjs)
 
 
+def _met_cond_tol(A, B):
+    """Extra absolute tolerance on F(A, B) explained by the conditioning of
+    the eigenvalue-sqrt formulation: the error in sum(sqrt(lam_i)) of
+    X = sqrt(A) B sqrt(A) is ~ eps*n/sqrt(lam_min). Applied only when lam_min
+    is resolved above the eigenvalue round-off floor (lam_min >= 100*n*eps);
+    numerically rank-deficient pairs (pure states, noise-level lam_min) return
+    0, so the sqrt(eps) rank-deficient defect keeps firing."""
+    import numpy as _np
+    import math
+    if getattr(A, "type", None) != "oper" or getattr(B, "type", None) != "oper":
+        return 0.0
+    a = A.full()
+    b = B.full()
+    n = a.shape[0]
+    w, v = _np.linalg.eigh((a + a.conj().T) / 2)
+    sa = (v * _np.sqrt(_np.clip(w, 0, None))) @ v.conj().T
+    x = sa @ b @ sa
+    lam = _np.linalg.eigvalsh((x + x.conj().T) / 2).min()
+    if lam < 100 * n * eps64:
+        return 0.0
+    return 4 * eps64 * n / math.sqrt(lam)
+
+
+def _met_dist_tol(A, B):
+    """Trace-distance analogue: the library forms eig(D^dag D), whose zero
+    eigenvalues cost sqrt(eps); only relevant when D = A - B has no (near-)
+    zero eigenvalue, where the error is ~ eps*n/|d_min|."""
+    import numpy as _np
+    import math
+    if getattr(A, "type", None) != "oper" or getattr(B, "type", None) != "oper":
+        return 0.0
+    d = _np.abs(_np.linalg.eigvalsh(A.full() - B.full())).min()
+    n = A.shape[0]
+    return 4 * eps64 * n / max(d, math.sqrt(eps64)) if d > 1e-8 else 0.0
+
+
 @_guard("fidelity_symmetry")
 def check_fidelity_symmetry(A, B, f_ab):
     """QT-MET-001: fidelity(A, B) == fidelity(B, A) -- symmetric by
@@ -414,7 +473,7 @@ def check_fidelity_symmetry(A, B, f_ab):
     if not _is_state_like(A, B):
         return
     f_ba = _fidelity(B, A)
-    tol = 500 * eps64
+    tol = 500 * eps64 + 2 * _met_cond_tol(A, B)
     trigger_if(abs(f_ab - f_ba) > tol, "QT-MET-001")
 
 
@@ -428,7 +487,7 @@ def check_fidelity_self_identity(A):
     if not _is_state_like(A):
         return
     f_aa = _fidelity(A, A)
-    tol = 2000 * eps64
+    tol = 2000 * eps64 + 2 * _met_cond_tol(A, A)
     trigger_if(abs(f_aa - 1) > tol, "QT-MET-002")
 
 
@@ -496,11 +555,16 @@ def check_bures_functions_of_fidelity(A, B):
         return
     d1, d2 = _bures_dist(A, B), _bures_dist(A2, B2)
     f1 = _fidelity(A, B)
-    tol_d = 2000 * eps64
+    # fidelity error tF (conditioning) is amplified by the sqrt in the
+    # distance/angle near F = 1: d ~ sqrt(2(1-F)), angle ~ arccos(F).
+    import math
+    tF = 2 * (_met_cond_tol(A, B) + _met_cond_tol(A2, B2))
+    tol_d = 2000 * eps64 + tF / max(d1, math.sqrt(max(tF, eps64)))
     trigger_if(abs(d1 - d2) > tol_d, "QT-MET-005")
     if abs(f1 - 1) > 1e-6:
         a1, a2 = _bures_angle(A, B), _bures_angle(A2, B2)
-        tol_a = 2000 * eps64
+        sn = math.sqrt(max(1 - min(1.0, f1) ** 2, 0.0))
+        tol_a = 2000 * eps64 + tF / max(sn, math.sqrt(max(tF, eps64)))
         trigger_if(abs(a1 - a2) > tol_a, "QT-MET-005")
 
 
@@ -561,7 +625,10 @@ def check_ladder_ccr(N, result_destroy, result_create, offset=0):
         return
     block = full[lo: N - 1, lo: N - 1]
     diff = float(_np.abs(block - _np.eye(N - 1 - lo)).max())
-    tol = 50 * eps64 * N
+    # Entries of a a^dagger are ~(offset + k): float rounding of sqrt(k+offset)
+    # products is ~offset*eps (measured ~0.5*offset*eps up to offset=1e9), so
+    # the O(N) accumulation term is joined by an O(offset) one.
+    tol = 50 * eps64 * (N + offset)
     trigger_if(diff > tol, "QT-OPS-002")
 
 
@@ -604,7 +671,8 @@ def check_swap_action(N, M, result):
 
 
 @_guard("expm_generator_unitarity")
-def check_expm_generator_unitary(N, magnitude, result, checker_id):
+def check_expm_generator_unitary(N, magnitude, result, checker_id,
+                                 offset=0, kind="displace"):
     """QT-OPS-005: displace()/squeeze() are exactly unitary at every
     truncation since they are matrix exponentials of anti-Hermitian
     generators (a standard Lie-theory fact independent of the generator's
@@ -625,7 +693,14 @@ def check_expm_generator_unitary(N, magnitude, result, checker_id):
     from .core.operators import qeye
 
     diff = (result.dag() @ result - qeye(N)).norm("max")
-    tol = 50 * eps64 * N * max(1.0, abs(magnitude))
+    # Unitarity loss of expm is ~||G||_2*eps. ||G|| = O(|alpha|*sqrt(offset+N))
+    # for displace and O(|z|*(offset+N)) for squeeze (a^2 has norm ~offset+N);
+    # both reduce to |magnitude| (relative to the N-sweep) at offset=0.
+    if kind == "squeeze":
+        gscale = abs(magnitude) * (offset + N) / N
+    else:
+        gscale = abs(magnitude) * ((offset + N) / N) ** 0.5
+    tol = 50 * eps64 * N * max(1.0, abs(magnitude), gscale)
     trigger_if(diff > tol, checker_id)
 
 
@@ -801,7 +876,7 @@ def check_rand_stochastic_normalization(N, kind, result):
 
 
 @_guard("bcsz_trace_preservation")
-def check_bcsz_trace_preservation(N, D_pre_permute):
+def check_bcsz_trace_preservation(N, D_pre_permute, Y_pre=None):
     """QT-RND-005: rand_super_bcsz(..., enforce_tp=True) produces a
     trace-preserving map: Tr_out(Choi) == I. Checked on the intermediate,
     pre-permute Choi-form D (same array layout the function itself computes
@@ -826,6 +901,10 @@ def check_bcsz_trace_preservation(N, D_pre_permute):
     Y = _np.einsum("ijik->jk", D)
     diff = float(_np.abs(Y - _np.eye(N)).max())
     tol = 200 * eps64 * N ** 2
+    if Y_pre is not None:
+        # Error of Y^(-1/2) renormalisation scales with cond(Y) (rank-1 draws
+        # reach cond ~6e4 while the base sweep saw cond <~ 100): scale beyond.
+        tol *= max(1.0, float(_np.linalg.cond(_np.asarray(Y_pre))) / 100.0)
     trigger_if(diff > tol, "QT-RND-005")
 
 
@@ -974,6 +1053,32 @@ def _ss_size_factor(n):
     return max(1.0, (n / 4.0) ** 2)
 
 
+_SS_FWD_CAP = 1e-6
+_ss_last_tol = [None]
+
+
+def _ss_conditioning(A, method, n):
+    """Forward-error tolerance for a steady state of Liouvillian A. The
+    returned rho solves L rho = 0 only up to the conditioning of L:
+    forward error ~ eps*kappa (kappa = ||L|| / sigma_gap, sigma_gap the
+    smallest nonzero singular value), and ~ eps*kappa^2 for method="eigen",
+    which diagonalises L^dag L. Capped at an absolute accuracy of 1e-6 so
+    total-loss results (error >> 1e-6) always fire. Returns (tol, gap);
+    gap is None (no conditioning relief) when L has > 900 rows (dense SVD
+    skipped)."""
+    import numpy as _np
+    base = 200 * eps64 * _ss_size_factor(n)
+    if A.shape[0] > 900:
+        return base * max(1.0, A.norm("max")), None
+    sv = _np.linalg.svd(A.full(), compute_uv=False)
+    gap = sv[-2]
+    kappa = sv[0] / max(gap, 1e-300)
+    p = 2 if method == "eigen" else 1
+    tol = min(max(base * max(1.0, A.norm("max")), base * kappa ** p),
+              _SS_FWD_CAP)
+    return tol, gap
+
+
 @_guard("steadystate_residual")
 def check_steadystate_residual(A, method, result):
     """QT-SS-001: L(rho_ss) = 0 regardless of which of the 4 linear-algebra
@@ -1000,7 +1105,15 @@ def check_steadystate_residual(A, method, result):
     residual = (A @ vec).norm("max")
     scale = max(1.0, A.norm("max")) * _ss_size_factor(result.shape[0])
     tol = 200 * eps64 * scale
-    trigger_if(residual > tol, "QT-SS-001")
+    # the forward error residual/sigma_gap must also exceed the
+    # conditioning-scaled tolerance (stashed for QT-SS-002, called next)
+    _ss_last_tol[0] = None
+    tol_fwd, gap = _ss_conditioning(A, method, result.shape[0])
+    _ss_last_tol[0] = tol_fwd
+    if gap is None:
+        trigger_if(residual > tol, "QT-SS-001")
+    else:
+        trigger_if(residual > tol and residual / gap > tol_fwd, "QT-SS-001")
 
 
 @_guard("steadystate_physicality")
@@ -1019,6 +1132,9 @@ def check_steadystate_physicality(method, result):
     if method not in _SS_RESIDUAL_METHODS:
         return
     tol_tr = 200 * eps64 * _ss_size_factor(result.shape[0])
+    tol_fwd, _ss_last_tol[0] = _ss_last_tol[0], None
+    if tol_fwd is not None:
+        tol_tr = max(tol_tr, tol_fwd)
     tol_psd = tol_tr
     tr_bad = abs(result.tr() - 1) > tol_tr
     evals = result.eigenenergies()
@@ -1055,5 +1171,6 @@ def check_expand_operator_ptrace_inverse(oper, dims, targets, result):
     recovered = result.ptrace(targets)
     expected = scale_dims * oper
     diff = (recovered - expected).norm("max")
-    tol = 100 * eps64 * fulldim
+    # Absolute error of the recovered operator is relative to its magnitude.
+    tol = 100 * eps64 * fulldim * max(1.0, expected.norm("max"))
     trigger_if(diff > tol, "QT-TEN-001")
