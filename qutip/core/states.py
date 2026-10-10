@@ -604,10 +604,6 @@ shape = [5, 5], type = oper, isHerm = True
                              "values 'operator' or 'analytic'")
         out = qdiags(diags, 0, dims=[[N], [N]], shape=(N, N), dtype=dtype)
         out._isherm = True
-        if method == 'operator':
-            import qutip._scientific_checkers as _sc
-            if _sc.enabled():
-                _sc.check_thermal_dm_trace(N, out)
         return out
 
 

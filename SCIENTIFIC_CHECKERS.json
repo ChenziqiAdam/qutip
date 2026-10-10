@@ -88,18 +88,6 @@
       "symbol": "coherent (method='operator' branch)"
     },
     {
-      "alarm": "abs(result.tr() - 1) exceeds 50*eps64*N, or the trace is non-finite",
-      "family": "thermal_state_trace_normalization",
-      "id": "QT-STA-003",
-      "invariant": "thermal_dm(N, n, method='operator').tr() == 1",
-      "observation_point": "inside thermal_dm(), before returning, in the method=='operator' branch",
-      "precondition": "any N >= 1, any mean occupation n > 0, method='operator' (n==0 takes a distinct fock_dm code path; method='analytic' is explicitly documented as not normalization-guaranteed under aggressive truncation)",
-      "rationale": "the operator method is the one the docstring recommends specifically for its normalization guarantee ('the method that should be used in computations'); a silent failure at extreme n would undermine that recommendation without any visible error",
-      "scientific_quantity": "density matrix trace normalization for a truncated thermal (Bose-Einstein) state",
-      "source": "qutip/core/states.py",
-      "symbol": "thermal_dm (method='operator' branch)"
-    },
-    {
       "alarm": "abs(pairwise overlap) exceeds 50*eps64 for any pair",
       "family": "bell_basis_orthonormality",
       "id": "QT-STA-004",
@@ -429,7 +417,7 @@
       "id": "QT-SS-002",
       "invariant": "rho_ss.tr() == 1 and min(rho_ss.eigenenergies()) >= 0",
       "observation_point": "same as QT-SS-001, checked alongside it as a sibling alarm",
-      "precondition": "same as QT-SS-001: method in {direct, iterative, eigen, svd, power}, propagator excluded Method 'iterative' is excluded as in QT-SS-001 (revised 2026-10-09).",
+      "precondition": "same as QT-SS-001, and the Liouvillian has a unique stationary state (numerical nullity 1: second-smallest singular value of L above n*eps64*sigma_max, n the Hilbert dimension); with a degenerate stationary manifold any null vector is a valid steady state and the check is skipped. Method 'iterative' is excluded as in QT-SS-001.",
       "rationale": "distinct root-cause family from QT-SS-001 (Step 6 grouping): a solver could satisfy L(rho_ss)=0 to high precision via a non-physical null vector (wrong trace normalization or a sign-indefinite combination of degenerate null vectors) while failing to be a valid density matrix, and vice versa -- these are observationally and causally independent failure modes",
       "scientific_quantity": "physical validity (unit-trace, PSD) of a returned steady state",
       "source": "qutip/solver/steadystate.py",

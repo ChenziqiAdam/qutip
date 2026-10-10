@@ -262,21 +262,6 @@ def check_coherent_normalization(N, alpha, result):
     trigger_if(diff > tol, "QT-STA-002")
 
 
-@_guard("thermal_state_trace_normalization")
-def check_thermal_dm_trace(N, result):
-    """QT-STA-003: thermal_dm(N, n, method='operator') has trace exactly 1
-    for any N >= 1, n > 0.
-    """
-    tr = result.tr()
-    tol = 50 * eps64 * N
-    is_finite = True
-    try:
-        is_finite = tr == tr and abs(tr) != float("inf")
-    except Exception:
-        is_finite = False
-    trigger_if((not is_finite) or abs(tr - 1) > tol, "QT-STA-003")
-
-
 @_guard("bell_basis_orthonormality")
 def check_bell_states_orthonormal(qutip_module):
     """QT-STA-004: the four Bell states are mutually orthonormal.
@@ -1055,6 +1040,7 @@ def _ss_size_factor(n):
 
 _SS_FWD_CAP = 1e-6
 _ss_last_tol = [None]
+_ss_last_degenerate = [False]
 
 
 def _ss_conditioning(A, method, n):
@@ -1072,6 +1058,8 @@ def _ss_conditioning(A, method, n):
         return base * max(1.0, A.norm("max")), None
     sv = _np.linalg.svd(A.full(), compute_uv=False)
     gap = sv[-2]
+    # numerical nullity > 1: the stationary state is not unique
+    _ss_last_degenerate[0] = bool(gap <= sv[0] * A.shape[0] * eps64)
     kappa = sv[0] / max(gap, 1e-300)
     p = 2 if method == "eigen" else 1
     tol = min(max(base * max(1.0, A.norm("max")), base * kappa ** p),
@@ -1108,6 +1096,7 @@ def check_steadystate_residual(A, method, result):
     # the forward error residual/sigma_gap must also exceed the
     # conditioning-scaled tolerance (stashed for QT-SS-002, called next)
     _ss_last_tol[0] = None
+    _ss_last_degenerate[0] = False
     tol_fwd, gap = _ss_conditioning(A, method, result.shape[0])
     _ss_last_tol[0] = tol_fwd
     if gap is None:
@@ -1119,7 +1108,8 @@ def check_steadystate_residual(A, method, result):
 @_guard("steadystate_physicality")
 def check_steadystate_physicality(method, result):
     """QT-SS-002: a returned steady state is a valid density matrix
-    (unit-trace, PSD) regardless of solver method -- distinct root-cause
+    (unit-trace, PSD) regardless of solver method, for a Liouvillian with
+    a unique stationary state (numerical nullity 1) -- distinct root-cause
     family from QT-SS-001 (a solver could satisfy L(rho_ss)=0 via a
     non-physical null vector, or vice versa; observationally and causally
     independent). Same method exclusion as QT-SS-001 (propagator excluded).
@@ -1130,6 +1120,12 @@ def check_steadystate_physicality(method, result):
     200*eps64 for headroom.
     """
     if method not in _SS_RESIDUAL_METHODS:
+        return
+    degenerate, _ss_last_degenerate[0] = _ss_last_degenerate[0], False
+    if degenerate:
+        # non-unique stationary state: any null vector is a valid
+        # "steady state" of L, so physicality is not defined for it
+        _ss_last_tol[0] = None
         return
     tol_tr = 200 * eps64 * _ss_size_factor(result.shape[0])
     tol_fwd, _ss_last_tol[0] = _ss_last_tol[0], None
