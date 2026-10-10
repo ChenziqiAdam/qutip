@@ -55,6 +55,18 @@ def trigger_if(condition, checker_id):
         trigger(checker_id)
 
 
+def _tidy_atol():
+    """User-requested sparse cleanup threshold (``auto_tidyup_atol``), or 0
+    when ``auto_tidyup`` is off. Entries with abs <= this value are zeroed by
+    the library on request, so a checker comparing against exact algebra must
+    allow the error such a per-entry perturbation induces."""
+    try:
+        from qutip import settings as _s
+        return float(_s.core["auto_tidyup_atol"]) if _s.core["auto_tidyup"] else 0.0
+    except Exception:
+        return 0.0
+
+
 def _within(a, b, atol):
     """True when ``a`` and ``b`` differ by at most the absolute tolerance
     ``atol``. ``atol`` should be derived from a numerical sweep (SANITIZER.md
@@ -141,7 +153,7 @@ def check_purity_bound(dim, purity_value):
     """
     if dim < 1:
         return
-    tol = 50 * eps64 * dim
+    tol = 50 * eps64 * dim + 3 * dim * _tidy_atol()
     p = purity_value.real if hasattr(purity_value, "real") else purity_value
     trigger_if(p < (1.0 / dim) - tol or p > 1.0 + tol, "QT-QOBJ-002")
 
@@ -195,12 +207,15 @@ def check_ptrace_tensor_inverse(A, B, product):
     exp0 = A * B.tr()
     tol0 = 50 * eps64 * n * m * max(
         1.0, exp0.norm("max"), A.norm("max") * absdiag_B)
+    tidy = 2 * n * m * _tidy_atol()
+    tol0 += tidy
     trigger_if((rec0 - exp0).norm("max") > tol0, "QT-QOBJ-004")
 
     rec1 = product.ptrace([1])
     exp1 = B * A.tr()
     tol1 = 50 * eps64 * n * m * max(
         1.0, exp1.norm("max"), B.norm("max") * absdiag_A)
+    tol1 += tidy
     trigger_if((rec1 - exp1).norm("max") > tol1, "QT-QOBJ-004")
 
 
@@ -259,6 +274,7 @@ def check_coherent_normalization(N, alpha, result):
     # 0.4*|alpha|*eps against a 60-digit reference); the 200*eps sweep was
     # taken at |alpha| <= 9, so scale linearly beyond |alpha| = 1.
     tol = 200 * eps64 * max(1.0, abs(alpha))
+    tol += (2 * result.shape[0]) ** 0.5 * _tidy_atol()
     trigger_if(diff > tol, "QT-STA-002")
 
 
@@ -807,6 +823,9 @@ def check_rand_dm_validity(N, result):
     tr = result.tr()
     tol_tr = 50 * eps64 * N
     tol_psd = 50 * eps64
+    tidy = 2 ** 0.5 * N * _tidy_atol()
+    tol_tr += tidy
+    tol_psd += tidy
     tr_bad = abs(tr - 1) > tol_tr
     evals = result.eigenenergies()
     psd_bad = float(evals.min()) < -tol_psd
@@ -835,6 +854,7 @@ def check_kraus_completeness(N, result):
         total = total + k.dag() @ k
     diff = (total - qeye(N)).norm("max")
     tol = 50 * eps64 * N ** 2
+    tol += len(result) * (2 * 2 ** 0.5 * N + 1) * _tidy_atol()
     trigger_if(diff > tol, "QT-RND-003")
 
 

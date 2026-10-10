@@ -16,7 +16,7 @@
       "symbol": "Qobj.dag"
     },
     {
-      "alarm": "purity < 1/d - tol or purity > 1 + tol, tol = 50*eps64*d",
+      "alarm": "purity < 1/d - tol or purity > 1 + tol, tol = 50*eps64*d + 3*d*atol_tidy",
       "family": "purity_simplex_bound",
       "id": "QT-QOBJ-002",
       "invariant": "1/d <= purity <= 1 for any valid density matrix of dimension d",
@@ -40,7 +40,7 @@
       "symbol": "Qobj.unit"
     },
     {
-      "alarm": "either recovered factor differs from the expected Tr(other)*factor by more than 50*eps64*n*m*scale, scale = max(1, max|Tr(other)*factor|, max|factor|*sum_k|diag(other)_kk|)",
+      "alarm": "either recovered factor differs from the expected Tr(other)*factor by more than 50*eps64*n*m*scale + 2*n*m*atol_tidy, scale = max(1, max|Tr(other)*factor|, max|factor|*sum_k|diag(other)_kk|)",
       "family": "ptrace_tensor_inverse",
       "id": "QT-QOBJ-004",
       "invariant": "tensor(A, B).ptrace([0]) == Tr(B)*A and tensor(A, B).ptrace([1]) == Tr(A)*B",
@@ -76,7 +76,7 @@
       "symbol": "basis / fock"
     },
     {
-      "alarm": "abs(result.norm() - 1) exceeds 200*eps64*max(1,|alpha|)",
+      "alarm": "abs(result.norm() - 1) exceeds 200*eps64*max(1,|alpha|) + sqrt(2N)*atol_tidy",
       "family": "coherent_state_normalization",
       "id": "QT-STA-002",
       "invariant": "coherent(N, alpha, method='operator').norm() == 1 for all valid inputs",
@@ -304,7 +304,7 @@
       "symbol": "rand_unitary"
     },
     {
-      "alarm": "abs(rho.tr()-1) > 50*eps64*N or min(rho.eigenenergies()) < -50*eps64",
+      "alarm": "abs(rho.tr()-1) > 50*eps64*N + sqrt(2)*N*atol_tidy or min(rho.eigenenergies()) < -(50*eps64 + sqrt(2)*N*atol_tidy)",
       "family": "random_density_matrix_validity",
       "id": "QT-RND-002",
       "invariant": "rho.tr() == 1 and min(rho.eigenenergies()) >= 0 for rho = rand_dm(...); Hermiticity is excluded from this alarm as a locally-guaranteed constructor flag",
@@ -316,7 +316,7 @@
       "symbol": "rand_dm"
     },
     {
-      "alarm": "(sum_K_dag_K - qeye(N)).norm('max') exceeds 50*eps64*N^2",
+      "alarm": "(sum_K_dag_K - qeye(N)).norm('max') exceeds 50*eps64*N^2 + len(K)*(2*sqrt(2)*N+1)*atol_tidy",
       "family": "kraus_completeness_relation",
       "id": "QT-RND-003",
       "invariant": "sum_i K_i^dagger K_i == I for the Kraus operators returned by rand_kraus_map(N)",
