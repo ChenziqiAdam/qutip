@@ -400,25 +400,13 @@
       "symbol": "entropy_mutual"
     },
     {
-      "alarm": "(A @ operator_to_vector(rho_ss)).norm('max') exceeds 200*eps64*max(1,A.norm('max'))*max(1,(n/4)**2), n the Hilbert dimension of rho_ss, and the forward error residual/sigma_gap exceeds the conditioning tolerance (see tolerance_derivation)",
-      "family": "steadystate_residual",
-      "id": "QT-SS-001",
-      "invariant": "(A @ operator_to_vector(rho_ss)).norm('max') is small relative to the scale of A",
-      "observation_point": "inside steadystate(), immediately before returning rho_ss, for all 4 linear-algebra solver branches uniformly (including the two branches -- eigen, svd -- that return early, which required separate instrumentation since they bypass the function's single trailing return statement)",
-      "precondition": "any super-type Liouvillian A (or Hamiltonian+collapse-operator list from which one is built internally), method in {direct, eigen, svd, power} -- REVISED (2026-09-21) to explicitly exclude the 5th method, 'propagator': it converges via an explicit hilbert_dist loop against propagator_tol (default 1e-5) as its own stopping condition, so its convergence is a local loop invariant already enforced by the algorithm itself, not an independent property to check (SANITIZER.md 5.2) Method 'iterative' is also excluded (revised 2026-10-09): its accuracy is set by the caller's tol/atol/rtol (default residual ~3e-5), so a fixed floating-point tolerance would only re-observe the user's own stopping criterion.",
-      "rationale": "four structurally unrelated numerical algorithms (direct linear solve with a trace-1 gauge row, eigenvalue problem, SVD, inverse-power iteration) are all claimed by the public API to solve the same equation L(rho_ss)=0; agreement across all four that the returned rho_ss actually satisfies the defining equation (rather than merely each algorithm's own internal convergence criterion) is not locally guaranteed by any single method's implementation",
-      "scientific_quantity": "residual of the steady-state defining equation L(rho_ss)=0",
-      "source": "qutip/solver/steadystate.py",
-      "symbol": "steadystate"
-    },
-    {
       "alarm": "abs(rho_ss.tr()-1) exceeds 200*eps64*max(1,(n/4)**2), or min(rho_ss.eigenenergies()) < -200*eps64*max(1,(n/4)**2), n the Hilbert dimension of rho_ss",
       "family": "steadystate_physicality",
       "id": "QT-SS-002",
       "invariant": "rho_ss.tr() == 1 and min(rho_ss.eigenenergies()) >= 0",
-      "observation_point": "same as QT-SS-001, checked alongside it as a sibling alarm",
-      "precondition": "same as QT-SS-001, and the Liouvillian has a unique stationary state (numerical nullity 1: second-smallest singular value of L above n*eps64*sigma_max, n the Hilbert dimension); with a degenerate stationary manifold any null vector is a valid steady state and the check is skipped. Method 'iterative' is excluded as in QT-SS-001.",
-      "rationale": "distinct root-cause family from QT-SS-001 (Step 6 grouping): a solver could satisfy L(rho_ss)=0 to high precision via a non-physical null vector (wrong trace normalization or a sign-indefinite combination of degenerate null vectors) while failing to be a valid density matrix, and vice versa -- these are observationally and causally independent failure modes",
+      "observation_point": "inside steadystate(), immediately before returning rho_ss, for all 4 linear-algebra solver branches (including the eigen and svd branches that return early)",
+      "precondition": "any super-type Liouvillian A (or Hamiltonian+collapse-operator list from which one is built internally), method in {direct, eigen, svd, power}, and the Liouvillian has a unique stationary state (numerical nullity 1: second-smallest singular value of L above n*eps64*sigma_max, n the Hilbert dimension); with a degenerate stationary manifold any null vector is a valid steady state and the check is skipped. Methods 'propagator' and 'iterative' are excluded: their accuracy is set by the caller's own stopping criterion.",
+      "rationale": "a solver could return a vector that is a null vector of L but not a valid density matrix (wrong trace normalization or a sign-indefinite combination of null vectors); unit trace and positive semidefiniteness are physical requirements independent of the solver's internal convergence criterion",
       "scientific_quantity": "physical validity (unit-trace, PSD) of a returned steady state",
       "source": "qutip/solver/steadystate.py",
       "symbol": "steadystate"

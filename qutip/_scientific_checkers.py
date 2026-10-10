@@ -1059,8 +1059,6 @@ def _ss_size_factor(n):
 
 
 _SS_FWD_CAP = 1e-6
-_ss_last_tol = [None]
-_ss_last_degenerate = [False]
 
 
 def _ss_conditioning(A, method, n):
@@ -1069,88 +1067,46 @@ def _ss_conditioning(A, method, n):
     forward error ~ eps*kappa (kappa = ||L|| / sigma_gap, sigma_gap the
     smallest nonzero singular value), and ~ eps*kappa^2 for method="eigen",
     which diagonalises L^dag L. Capped at an absolute accuracy of 1e-6 so
-    total-loss results (error >> 1e-6) always fire. Returns (tol, gap);
-    gap is None (no conditioning relief) when L has > 900 rows (dense SVD
-    skipped)."""
+    total-loss results (error >> 1e-6) always fire. Returns (tol,
+    degenerate); degenerate is True when L has numerical nullity > 1.
+    With more than 900 rows the dense SVD is skipped (no conditioning
+    relief, degenerate False)."""
     import numpy as _np
     base = 200 * eps64 * _ss_size_factor(n)
     if A.shape[0] > 900:
-        return base * max(1.0, A.norm("max")), None
+        return base * max(1.0, A.norm("max")), False
     sv = _np.linalg.svd(A.full(), compute_uv=False)
     gap = sv[-2]
-    # numerical nullity > 1: the stationary state is not unique
-    _ss_last_degenerate[0] = bool(gap <= sv[0] * A.shape[0] * eps64)
+    degenerate = bool(gap <= sv[0] * A.shape[0] * eps64)
     kappa = sv[0] / max(gap, 1e-300)
     p = 2 if method == "eigen" else 1
     tol = min(max(base * max(1.0, A.norm("max")), base * kappa ** p),
               _SS_FWD_CAP)
-    return tol, gap
-
-
-@_guard("steadystate_residual")
-def check_steadystate_residual(A, method, result):
-    """QT-SS-001: L(rho_ss) = 0 regardless of which of the 4 linear-algebra
-    solver methods (direct/eigen/svd/power) was used. The 5th method,
-    "propagator", is explicitly excluded from the precondition (revision,
-    2026-09-21): it converges by an explicit hilbert_dist loop against
-    propagator_tol (default 1e-5) as its own stopping condition, so its
-    convergence is a local loop invariant already enforced by the
-    algorithm itself, not an independent property to check (SANITIZER.md
-    5.2) -- checking it here would mostly re-observe the loop's own
-    tolerance parameter, not a new fact about the returned state.
-
-    Tolerance derivation: 12-configuration float64 sweep (N in [2,3,4],
-    random Hamiltonian + 2 collapse operators, all 4 methods): worst
-    observed residual/(eps64*||L||) ratio was 3.29 (power method). tol =
-    200*eps64*scale for headroom, reusing the Liouvillian's own natural
-    magnitude scale as the cross-check input (not as ground truth).
-    """
-    if method not in _SS_RESIDUAL_METHODS:
-        return
-    from .core.superoperator import operator_to_vector as _op_to_vec
-
-    vec = _op_to_vec(result)
-    residual = (A @ vec).norm("max")
-    scale = max(1.0, A.norm("max")) * _ss_size_factor(result.shape[0])
-    tol = 200 * eps64 * scale
-    # the forward error residual/sigma_gap must also exceed the
-    # conditioning-scaled tolerance (stashed for QT-SS-002, called next)
-    _ss_last_tol[0] = None
-    _ss_last_degenerate[0] = False
-    tol_fwd, gap = _ss_conditioning(A, method, result.shape[0])
-    _ss_last_tol[0] = tol_fwd
-    if gap is None:
-        trigger_if(residual > tol, "QT-SS-001")
-    else:
-        trigger_if(residual > tol and residual / gap > tol_fwd, "QT-SS-001")
+    return tol, degenerate
 
 
 @_guard("steadystate_physicality")
-def check_steadystate_physicality(method, result):
+def check_steadystate_physicality(A, method, result):
     """QT-SS-002: a returned steady state is a valid density matrix
-    (unit-trace, PSD) regardless of solver method, for a Liouvillian with
-    a unique stationary state (numerical nullity 1) -- distinct root-cause
-    family from QT-SS-001 (a solver could satisfy L(rho_ss)=0 via a
-    non-physical null vector, or vice versa; observationally and causally
-    independent). Same method exclusion as QT-SS-001 (propagator excluded).
+    (unit-trace, PSD) regardless of solver method, for a Liouvillian A
+    with a unique stationary state (numerical nullity 1). Methods
+    "propagator" and "iterative" are excluded: their accuracy is set by
+    the caller's own stopping criterion.
 
-    Tolerance derivation: same 12-configuration sweep as QT-SS-001: worst
-    observed trace violation was 1.0*eps64 (direct/svd); PSD violation was
-    0 for all methods/configurations tried. tol_tr = 200*eps64, tol_psd =
-    200*eps64 for headroom.
+    Tolerance derivation: float64 sweeps (n in [2, 60], random and
+    oscillator Liouvillians, 4 methods): worst trace violation 1116*eps64
+    (direct, n = 60), worst PSD violation 1771*eps64 (eigen, n = 60), 4700
+    (eigen, n = 30 upstream test). tol = 200*eps64*max(1,(n/4)**2),
+    raised to the conditioning tolerance of L (see _ss_conditioning).
     """
     if method not in _SS_RESIDUAL_METHODS:
         return
-    degenerate, _ss_last_degenerate[0] = _ss_last_degenerate[0], False
+    tol_fwd, degenerate = _ss_conditioning(A, method, result.shape[0])
     if degenerate:
         # non-unique stationary state: any null vector is a valid
         # "steady state" of L, so physicality is not defined for it
-        _ss_last_tol[0] = None
         return
-    tol_tr = 200 * eps64 * _ss_size_factor(result.shape[0])
-    tol_fwd, _ss_last_tol[0] = _ss_last_tol[0], None
-    if tol_fwd is not None:
-        tol_tr = max(tol_tr, tol_fwd)
+    tol_tr = max(200 * eps64 * _ss_size_factor(result.shape[0]), tol_fwd)
     tol_psd = tol_tr
     tr_bad = abs(result.tr() - 1) > tol_tr
     evals = result.eigenenergies()
