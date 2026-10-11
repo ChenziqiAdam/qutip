@@ -223,10 +223,16 @@ def check_ptrace_tensor_inverse(A, B, product):
     # ~eps*sum_k|b_kk|, so when the spectrum cancels (sum|b_kk| >> |Tr B|)
     # the tolerance must scale with sum|b_kk|*max|A|, not with |Tr B|*max|A|.
     import numpy as _np
+    from .core import data as _qdata
+    # Reference traces come from the data layer: Qobj.tr() keeps only the
+    # real part whenever isherm passes at settings.core['atol'], which would
+    # drop a sub-atol imaginary trace that ptrace correctly carries.
+    trA = complex(_qdata.trace(A.data))
+    trB = complex(_qdata.trace(B.data))
     absdiag_A = float(_np.abs(_np.diag(A.full())).sum())
     absdiag_B = float(_np.abs(_np.diag(B.full())).sum())
     rec0 = product.ptrace([0])
-    exp0 = A * B.tr()
+    exp0 = A * trB
     tol0 = 50 * eps64 * n * m * max(
         1.0, exp0.norm("max"), A.norm("max") * absdiag_B)
     tidy = 2 * n * m * _tidy_atol()
@@ -234,7 +240,7 @@ def check_ptrace_tensor_inverse(A, B, product):
     trigger_if((rec0 - exp0).norm("max") > tol0, "QT-QOBJ-004")
 
     rec1 = product.ptrace([1])
-    exp1 = B * A.tr()
+    exp1 = B * trA
     tol1 = 50 * eps64 * n * m * max(
         1.0, exp1.norm("max"), B.norm("max") * absdiag_A)
     tol1 += tidy
@@ -1004,7 +1010,11 @@ def check_partial_transpose_trace(rho, result):
     tol = 50 * eps64 * dim
     # A requested cleanup drops at most dim diagonal entries of size <= sqrt(2) t.
     tol += 2 ** 0.5 * dim * _tidy_atol()
-    diff = abs(result.tr() - rho.tr())
+    from .core import data as _qdata
+    # raw data-layer traces (Qobj.tr() drops a sub-atol imaginary part
+    # for operators that pass isherm, and the two operands may differ there)
+    diff = abs(complex(_qdata.trace(result.data))
+               - complex(_qdata.trace(rho.data)))
     trigger_if(diff > tol, "QT-PT-002")
 
 

@@ -364,7 +364,7 @@
       "symbol": "partial_transpose"
     },
     {
-      "alarm": "abs(result.tr() - rho.tr()) exceeds 50*eps64*dim + sqrt(2)*dim*atol_tidy (atol_tidy = 0 when auto_tidyup is off)",
+      "alarm": "abs(Tr(result) - Tr(rho)) (unprojected data-layer traces) exceeds 50*eps64*dim + sqrt(2)*dim*atol_tidy (atol_tidy = 0 when auto_tidyup is off)",
       "family": "partial_transpose_trace_invariance",
       "id": "QT-PT-002",
       "invariant": "Tr(rho^{T_A}) == Tr(rho) for any subsystem mask A",
