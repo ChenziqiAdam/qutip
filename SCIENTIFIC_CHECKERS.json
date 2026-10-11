@@ -244,7 +244,7 @@
       "symbol": "swap"
     },
     {
-      "alarm": "(U.dag() @ U - qeye(N)).norm('max') exceeds 50*eps64*N*max(1,|m|,g) with g=|m|*sqrt((offset+N)/N) (displace) or |m|*(offset+N)/N (squeeze)",
+      "alarm": "(U.dag() @ U - qeye(N)).norm('max') exceeds 50*eps64*N*max(1,|m|,g) with g=|m|*sqrt((offset+N)/N) (displace) or |m|*(offset+N)/N (squeeze), plus 2*sqrt(N)*t+N*t^2 where t is the requested sparse cleanup threshold auto_tidyup_atol when auto_tidyup is on (0 otherwise)",
       "family": "expm_generator_unitarity",
       "id": "QT-OPS-005",
       "invariant": "U.dag() @ U == qeye(N) for U = displace(N, alpha) or U = squeeze(N, z), since the exponential of any anti-Hermitian generator is exactly unitary in exact arithmetic",

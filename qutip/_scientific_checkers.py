@@ -691,9 +691,11 @@ def check_expm_generator_unitary(N, magnitude, result, checker_id,
     scaling-and-squaring backward-stability error on an anti-Hermitian
     generator.
     """
-    from .core.operators import qeye
-
-    diff = (result.dag() @ result - qeye(N)).norm("max")
+    # Dense numpy arithmetic so the library's requested cleanup does not also
+    # tidy the checker's own product.
+    import numpy as np
+    M = result.full()
+    diff = np.abs(M.conj().T @ M - np.eye(N)).max()
     # Unitarity loss of expm is ~||G||_2*eps. ||G|| = O(|alpha|*sqrt(offset+N))
     # for displace and O(|z|*(offset+N)) for squeeze (a^2 has norm ~offset+N);
     # both reduce to |magnitude| (relative to the N-sweep) at offset=0.
@@ -702,6 +704,10 @@ def check_expm_generator_unitary(N, magnitude, result, checker_id,
     else:
         gscale = abs(magnitude) * ((offset + N) / N) ** 0.5
     tol = 50 * eps64 * N * max(1.0, abs(magnitude), gscale)
+    # A requested per-entry cleanup (auto_tidyup_atol = t) perturbs U by E with
+    # |E_ij| <= t, which changes U^dag U - I by at most 2*sqrt(N)*t + N*t^2.
+    t = _tidy_atol()
+    tol += 2 * N ** 0.5 * t + N * t * t
     trigger_if(diff > tol, checker_id)
 
 
