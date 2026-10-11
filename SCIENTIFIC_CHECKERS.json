@@ -292,7 +292,7 @@
       "symbol": "reshuffle"
     },
     {
-      "alarm": "(U @ U.dag() - qeye(N)).norm('max') exceeds 50*eps64*N",
+      "alarm": "(U @ U.dag() - qeye(N)).norm('max') exceeds 50*eps64*N + 2*sqrt(N)*t + N*t^2, with t = sqrt(2)*atol_tidy (0 when auto_tidyup is off)",
       "family": "random_unitary_unitarity",
       "id": "QT-RND-001",
       "invariant": "U @ U.dag() == qeye(N) for U = rand_unitary(...)",
@@ -328,7 +328,7 @@
       "symbol": "rand_kraus_map"
     },
     {
-      "alarm": "max(abs(axis_sums - 1)) exceeds 50*eps64*N",
+      "alarm": "max(abs(axis_sums - 1)) exceeds 50*eps64*N + N*atol_tidy (atol_tidy = 0 when auto_tidyup is off)",
       "family": "stochastic_matrix_normalization",
       "id": "QT-RND-004",
       "invariant": "every row of rand_stochastic(N,density,kind='right').full() sums to 1, or every column sums to 1 for kind='left', matching the function's own documented kind semantics",
@@ -352,7 +352,7 @@
       "symbol": "rand_super_bcsz"
     },
     {
-      "alarm": "(dense_result - sparse_result).norm('max') exceeds 50*eps64*dim",
+      "alarm": "max abs entry of (dense_result - sparse_result) exceeds 50*eps64*dim + sqrt(2)*atol_tidy (atol_tidy = 0 when auto_tidyup is off)",
       "family": "partial_transpose_method_consistency",
       "id": "QT-PT-001",
       "invariant": "_partial_transpose_dense(rho,mask) == _partial_transpose_sparse(rho,mask) for the same rho, mask",
@@ -364,7 +364,7 @@
       "symbol": "partial_transpose"
     },
     {
-      "alarm": "abs(result.tr() - rho.tr()) exceeds 50*eps64*dim",
+      "alarm": "abs(result.tr() - rho.tr()) exceeds 50*eps64*dim + sqrt(2)*dim*atol_tidy (atol_tidy = 0 when auto_tidyup is off)",
       "family": "partial_transpose_trace_invariance",
       "id": "QT-PT-002",
       "invariant": "Tr(rho^{T_A}) == Tr(rho) for any subsystem mask A",
@@ -388,7 +388,7 @@
       "symbol": "concurrence"
     },
     {
-      "alarm": "result < -200*eps64*hilbert_dim, or result > 2*min(entropy_vn(ptrace(rho,selA)), entropy_vn(ptrace(rho,selB))) + 200*eps64*hilbert_dim",
+      "alarm": "result < -tol, or result > 2*min(entropy_vn(ptrace(rho,selA)), entropy_vn(ptrace(rho,selB))) + tol, with tol = 200*eps64*hilbert_dim, plus, when auto_tidyup is on, F_A + F_B + 2*max(F_A, F_B) where F_X is the Fannes-Audenaert entropy-change bound for marginal X under an entrywise perturbation of at most sqrt(2)*atol_tidy",
       "family": "mutual_information_bounds",
       "id": "QT-ENT-002",
       "invariant": "entropy_mutual(rho,selA,selB) >= 0 (subadditivity of von Neumann entropy) and <= 2*min(S(A),S(B))",
@@ -412,7 +412,7 @@
       "symbol": "steadystate"
     },
     {
-      "alarm": "(recovered - scale*oper).norm('max') exceeds 100*eps64*prod(dims)*max(1,max|scale*oper|)",
+      "alarm": "(recovered - scale*oper).norm('max') exceeds 100*eps64*prod(dims)*max(1,max|scale*oper|) + sqrt(2)*(scale+2)*atol_tidy (atol_tidy = 0 when auto_tidyup is off)",
       "family": "expand_operator_ptrace_inverse",
       "id": "QT-TEN-001",
       "invariant": "expand_operator(oper, dims, targets).ptrace(targets) == prod(dims[i] for i not in targets) * oper",

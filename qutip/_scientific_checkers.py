@@ -825,10 +825,18 @@ def check_rand_unitary(N, result):
     worst observed diff/(eps64*N) ratio was 1.25. tol = 50*eps64*N gives
     ample headroom for the QR-based unitarity error growth with N.
     """
-    from .core.operators import qeye
+    import numpy as _np
 
-    diff = (result @ result.dag() - qeye(N)).norm("max")
+    # Dense numpy product: the checker's own sparse product must not be
+    # tidied by the library's requested cleanup.
+    M = result.full()
+    diff = float(_np.abs(M @ M.conj().T - _np.eye(N)).max())
     tol = 50 * eps64 * N
+    # A requested per-entry cleanup (auto_tidyup_atol = t) perturbs U by E with
+    # |E_ij| <= sqrt(2) t, which changes U U^dag - I by at most
+    # 2 sqrt(N) |E|max + N |E|max^2.
+    t = 2 ** 0.5 * _tidy_atol()
+    tol += 2 * N ** 0.5 * t + N * t * t
     trigger_if(diff > tol, "QT-RND-001")
 
 
@@ -905,6 +913,9 @@ def check_rand_stochastic_normalization(N, kind, result):
     sums = _np.abs(full.sum(axis=axis))
     diff = float(_np.max(_np.abs(sums - 1)))
     tol = 50 * eps64 * N
+    # A requested cleanup drops at most N entries of magnitude <= t per
+    # row/column.
+    tol += N * _tidy_atol()
     trigger_if(diff > tol, "QT-RND-004")
 
 
@@ -967,7 +978,12 @@ def check_partial_transpose_methods(rho, mask):
     tol = 50 * eps64 * dim
     dense = _partial_transpose_dense(rho, mask)
     sparse = _partial_transpose_sparse(rho, mask)
-    diff = (dense - sparse).norm("max")
+    import numpy as _np
+
+    diff = float(_np.abs(dense.full() - sparse.full()).max())
+    # The two containers are tidied independently when cleanup is requested:
+    # per-entry difference <= sqrt(2) t (real and imaginary parts separately).
+    tol += 2 ** 0.5 * _tidy_atol()
     trigger_if(diff > tol, "QT-PT-001")
 
 
@@ -986,6 +1002,8 @@ def check_partial_transpose_trace(rho, result):
     """
     dim = rho.shape[0]
     tol = 50 * eps64 * dim
+    # A requested cleanup drops at most dim diagonal entries of size <= sqrt(2) t.
+    tol += 2 ** 0.5 * dim * _tidy_atol()
     diff = abs(result.tr() - rho.tr())
     trigger_if(diff > tol, "QT-PT-002")
 
@@ -1008,6 +1026,29 @@ def check_concurrence_bound(result):
     tol = 50 * eps64
     val = result.real if hasattr(result, "real") else result
     trigger_if(val > 1.0 + tol, "QT-ENT-001")
+
+
+def _fannes(dims, sel, t, base):
+    """Largest entropy change (in units of ``base``) of the marginal on the
+    subsystems ``sel`` of a state with dimensions ``dims`` when every entry
+    is perturbed by at most sqrt(2) t (Fannes-Audenaert bound)."""
+    import math
+    try:
+        sel = list(sel)
+    except TypeError:
+        sel = [sel]
+    d = 1
+    for i in sel:
+        d *= int(dims[i])
+    if d <= 1:
+        return 0.0
+    T = 0.5 * d * d * 2 ** 0.5 * t
+    if T >= 1.0 - 1.0 / d:
+        f = math.log(d)
+    else:
+        h = -T * math.log(T) - (1 - T) * math.log(1 - T) if T > 0 else 0.0
+        f = T * math.log(d - 1) + h
+    return f / math.log(base)
 
 
 @_guard("mutual_information_bounds")
@@ -1063,6 +1104,15 @@ def check_mutual_information_bounds(rho, selA, selB, result, base=None):
     tol = 200 * eps64 * max(1, rho.shape[0])
     sA = _entropy_vn(_ptrace(rho, selA), base)
     sB = _entropy_vn(_ptrace(rho, selB), base)
+    t = _tidy_atol()
+    if t > 0:
+        # A requested cleanup perturbs each marginal by E with |E_ij| <=
+        # sqrt(2) t, i.e. trace distance T <= d^2 t / sqrt(2); entropy changes
+        # by at most the Fannes-Audenaert bound (non-Lipschitz at zero
+        # eigenvalues, so a pure marginal may become mixed).
+        fA = _fannes(rho.dims[0], selA, t, base)
+        fB = _fannes(rho.dims[0], selB, t, base)
+        tol += fA + fB + 2 * max(fA, fB)
     lower_bad = result < -tol
     upper_bad = result > 2 * min(sA, sB) + tol
     trigger_if(lower_bad or upper_bad, "QT-ENT-002")
@@ -1173,4 +1223,8 @@ def check_expand_operator_ptrace_inverse(oper, dims, targets, result):
     diff = (recovered - expected).norm("max")
     # Absolute error of the recovered operator is relative to its magnitude.
     tol = 100 * eps64 * fulldim * max(1.0, expected.norm("max"))
+    # A requested cleanup (entries <= t zeroed) drops oper entries before the
+    # trace over scale_dims copies, and tidies both compared operators:
+    # per-entry deviation <= (scale_dims + 2) sqrt(2) t.
+    tol += 2 ** 0.5 * (scale_dims + 2) * _tidy_atol()
     trigger_if(diff > tol, "QT-TEN-001")
