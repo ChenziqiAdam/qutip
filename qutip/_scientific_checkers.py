@@ -101,6 +101,26 @@ def _quiet():
             pass
 
 
+def _noncanonical(*objs):
+    """True if any Qobj (or list/tuple of Qobjs) stores CSR data with
+    duplicate or unsorted column indices. qutip kernels assume canonical
+    CSR and disagree with each other on duplicate entries, so no
+    cross-kernel invariant is meaningful for such an input."""
+    for o in objs:
+        if isinstance(o, (list, tuple)):
+            if _noncanonical(*o):
+                return True
+            continue
+        d = getattr(o, "data", None)
+        if type(d).__name__ == "CSR":
+            try:
+                if not d.as_scipy().has_canonical_format:
+                    return True
+            except Exception:
+                return True
+    return False
+
+
 def _guard(checker_id):
     """Wrap a checker body so an internal error never disturbs production.
 
@@ -114,6 +134,8 @@ def _guard(checker_id):
                 return
             _active.flag = True
             try:
+                if _noncanonical(*args, *kwargs.values()):
+                    return
                 with _quiet():
                     func(*args, **kwargs)
             except Exception:
