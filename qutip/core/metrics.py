@@ -323,7 +323,7 @@ def tracedist(A, B, sparse=False, tol=0):
         _tracedist_check_active = True
         try:
             _sc.check_tracedist_metric_axioms(
-                orig_A, orig_B, result
+                orig_A, orig_B, result, sparse=sparse, tol=tol
             )
             f_ab = fidelity(orig_A, orig_B)
             _sc.check_fuchs_van_de_graaf(

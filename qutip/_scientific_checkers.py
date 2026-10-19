@@ -197,14 +197,32 @@ def check_unit_idempotence(result, norm_kind):
         # Trace norm of a sparse operator is sum(sqrt(eig(M M^dag))); each
         # retained singular value s_i carries rounding error ~ eps*smax^2/(2 s_i)
         # (conditioning, not a defect). Numerically zero singular values are
-        # excluded so a rank-deficient operator (exact trace norm via SVD,
-        # sqrt(eps)-level error through M M^dag) still alarms.
+        # excluded here, so a rank-deficient Dense operator (exact trace norm
+        # via SVD) keeps the tight bound; sparse layers get the term below.
         import numpy as np
         sv = np.linalg.svd(result.full(), compute_uv=False)
         smax = float(sv.max()) if sv.size else 0.0
         if smax > 0:
-            pos = sv[sv > max(result.shape) * eps64 * smax]
+            n = max(result.shape)
+            pos = sv[sv > n * eps64 * smax]
             tol += 2 * eps64 * smax ** 2 * float(np.sum(1.0 / pos))
+            if type(result.data).__name__ in ("CSR", "Dia"):
+                # Sparse layers (trace_csr) sum sqrt(|eig(M M^dag)|): each of
+                # the k numerically zero singular values becomes the sqrt of
+                # an eigenvalue round-off of up to n*eps*smax^2, i.e.
+                # sqrt(n*eps)*smax, in each of the two norm evaluations.
+                # Maintainers treat this ~1e-8 error as expected (qutip#3025,
+                # closed). Dense uses an exact SVD and keeps the tight bound.
+                k = sv.size - pos.size
+                tol += 2 * k * np.sqrt(n * eps64) * smax
+    elif (norm_kind == "tr" and len(result.shape) == 2
+          and type(result.data).__name__ in ("CSR", "Dia")):
+        # Large sparse operator, no SVD: an eigenvalue error of n*eps*smax^2
+        # moves any sqrt(lam_i) by at most sqrt(n*eps)*smax, so all n terms of
+        # both evaluations are covered by 2*n*sqrt(n*eps)*smax, smax <= ||.||_F.
+        import math
+        n = max(result.shape)
+        tol += 2 * n * math.sqrt(n * eps64) * float(result.norm("fro"))
     trigger_if(abs(n2 - 1) > tol, "QT-QOBJ-003")
 
 
@@ -521,20 +539,39 @@ def check_fidelity_self_identity(A):
 
 
 @_guard("tracedist_metric_axioms")
-def check_tracedist_metric_axioms(A, B, d_ab):
+def check_tracedist_metric_axioms(A, B, d_ab, sparse=False, tol=0):
     """QT-MET-003: tracedist is a proper metric -- zero iff equal,
     symmetric, obeys the triangle inequality. Re-calls tracedist on (A, A),
     (B, A), and against a fresh random-ish comparator to probe the triangle
     inequality using the already-available B as the midpoint.
+
+    Re-calls use the caller's ``sparse``/``tol`` (a dense re-call would
+    compare LAPACK against ARPACK). The dense path is deterministic and
+    D^dag D is bit-identical for A-B and B-A, so symmetry stays exact. The
+    sparse path is a randomly-started iterative solve: each of the n
+    eigenvalues of D^dag D carries an absolute error up to
+    delta = (n*eps + max(tol, eps)) * lam_max, and the library sums
+    sqrt(|lam|), so a numerically-zero eigenvalue may contribute sqrt(delta)
+    to each of two independent runs: |d_ab - d_ba| <= n*sqrt(delta).
+    lam_max is bounded by ||A - B||_F^2. D(A, A) has D = 0 exactly on both
+    paths, so the self-distance alarm keeps the fixed tolerance.
     """
     from . import tracedist as _tracedist
+    import math
 
     if not _is_state_like(A, B):
         return
-    tol = 100 * eps64
-    trigger_if(abs(_tracedist(A, A)) > tol, "QT-MET-003")
-    d_ba = _tracedist(B, A)
-    trigger_if(abs(d_ab - d_ba) > tol, "QT-MET-003")
+    atol = 100 * eps64
+    trigger_if(abs(_tracedist(A, A, sparse=sparse, tol=tol)) > atol, "QT-MET-003")
+    d_ba = _tracedist(B, A, sparse=sparse, tol=tol)
+    sym_tol = atol
+    if sparse:
+        P, Q = (q.proj() if q.type in ("ket", "bra") else q for q in (A, B))
+        n = P.shape[0]
+        lam_max = float((P - Q).norm("fro")) ** 2
+        delta = (n * eps64 + max(float(tol), eps64)) * lam_max
+        sym_tol += n * math.sqrt(delta)
+    trigger_if(abs(d_ab - d_ba) > sym_tol, "QT-MET-003")
 
 
 @_guard("fuchs_van_de_graaf_bound")
@@ -803,11 +840,22 @@ def check_reshuffle_involution(q_oper, result):
     relabeling operation with no floating-point arithmetic on nonzero data
     (confirmed: 90-trial sweep, N,M in [2,4], worst exact diff was 0.0).
     """
-    from .core.dimensions import Compound
+    from .core.dimensions import Compound, Space, SuperSpace
 
     dims0 = q_oper._dims[0]
     if not isinstance(dims0, Compound):
         return
+    # The involution is well-posed only when every factor is a superoperator
+    # on one elementary space of dimension >= 2. A size-1 ("trivial ancilla")
+    # space is dropped by the dims bookkeeping, so the reshuffled object
+    # cannot be re-split (TypeError) although its matrix is correct; a
+    # compound factor ([2,2] x [3]) is regrouped into elementary factors by
+    # the first reshuffle, so the second one targets a different partition.
+    # Neither is a violation of the relabeling law.
+    for space in dims0.spaces:
+        oper = space.oper if isinstance(space, SuperSpace) else None
+        if oper is None or type(oper.to_) is not Space or oper.to_.size < 2:
+            return
     from .core.superoperator import reshuffle as _reshuffle
 
     try:

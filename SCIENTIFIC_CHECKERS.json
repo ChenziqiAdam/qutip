@@ -28,7 +28,7 @@
       "symbol": "Qobj.purity"
     },
     {
-      "alarm": "abs(result.unit(norm).norm(norm) - 1) exceeds 50*eps64",
+      "alarm": "abs(result.unit(norm).norm(norm) - 1) exceeds 50*eps64, plus for norm='tr' the singular-value conditioning term 2*eps64*smax^2*sum(1/s_i) over resolved s_i, and for CSR/Dia data (eigenvalues of M M^dag) 2*k*sqrt(n*eps64)*smax for the k numerically zero singular values (2*n*sqrt(n*eps64)*||M||_F when n > 128); Dense rank-deficient operators keep the tight bound",
       "family": "unit_norm_idempotence",
       "id": "QT-QOBJ-003",
       "invariant": "unit() is idempotent on its own fixed point: applying unit() to an already-unit-normalized object under the same norm returns an object whose norm is still 1",
@@ -160,12 +160,12 @@
       "symbol": "fidelity (operator branch)"
     },
     {
-      "alarm": "abs(tracedist(A,A)) exceeds 100*eps64, or abs(tracedist(A,B)-tracedist(B,A)) exceeds 100*eps64",
+      "alarm": "abs(tracedist(A,A)) exceeds 100*eps64, or abs(tracedist(A,B)-tracedist(B,A)) exceeds 100*eps64 on the dense path; with sparse=True the symmetry bound adds n*sqrt((n*eps64 + max(tol, eps64)) * ||A-B||_F^2) (iterative eigensolver error on numerically zero eigenvalues of D^dag D, amplified by the square root)",
       "family": "tracedist_metric_axioms",
       "id": "QT-MET-003",
       "invariant": "tracedist(A,A) == 0 (self-distance), and tracedist(A,B) == tracedist(B,A) (symmetry)",
       "observation_point": "at the return point of tracedist(), a re-call sanitizer computes tracedist(A,A) and tracedist(B,A) and compares",
-      "precondition": "any valid density matrices (or auto-projected ket/bra) A, B of matching dimensions",
+      "precondition": "any valid density matrices (or auto-projected ket/bra) A, B of matching dimensions; re-calls use the caller's sparse/tol arguments",
       "rationale": "tracedist is documented and used as a genuine metric; if either axiom fails outside float noise, code that relies on it as a true metric (convergence criteria, optimization landscapes) would behave incorrectly",
       "scientific_quantity": "trace distance as a proper metric on density matrices",
       "source": "qutip/core/metrics.py",
@@ -285,7 +285,7 @@
       "id": "QT-SPO-003",
       "invariant": "reshuffle(reshuffle(A)) == A for A in the Compound branch",
       "observation_point": "inside reshuffle(), before returning, gated on the input actually being Compound-structured, re-calling reshuffle() on the freshly computed result",
-      "precondition": "any super-type or operator-ket-type Qobj built as a tensor product of k>=2 square-operator subspaces, restricted to the genuine Compound-structured branch (excluding the SuperSpace/non-compound early-return shortcuts, which are local tautologies that literally return a copy)",
+      "precondition": "a super-type or operator-ket-type Qobj in the Compound branch whose every factor is a superoperator on a single elementary space of dimension >= 2 (excluded: SuperSpace/non-compound early-return shortcuts, which literally return a copy; size-1 trivial-ancilla spaces, which the dims bookkeeping drops; compound factors such as [2,2] x [3], which the first reshuffle regroups into elementary factors)",
       "rationale": "_to_super_of_tensor and _to_tensor_of_super independently compute a perm_idxs permutation via two separately written (non-textually-identical) loops and hand off to Qobj.permute; their composing to the identity is a nontrivial cross-function law, and reshuffle composes with permute -- a pure relabeling operation with no floating-point arithmetic on nonzero data",
       "scientific_quantity": "column-reshuffling relabeling between composite-superoperator and tensor-of-superoperator representations",
       "source": "qutip/core/superoperator.py",
