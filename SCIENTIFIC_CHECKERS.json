@@ -28,7 +28,7 @@
       "symbol": "Qobj.purity"
     },
     {
-      "alarm": "abs(result.unit(norm).norm(norm) - 1) exceeds 50*eps64, plus for norm='tr' the singular-value conditioning term 2*eps64*smax^2*sum(1/s_i) over resolved s_i, and for CSR/Dia data (eigenvalues of M M^dag) 2*k*sqrt(n*eps64)*smax for the k numerically zero singular values (2*n*sqrt(n*eps64)*||M||_F when n > 128); Dense rank-deficient operators keep the tight bound",
+      "alarm": "abs(result.unit(norm).norm(norm) - 1) exceeds 50*eps64, plus for norm='tr' the singular-value conditioning term 2*eps64*smax^2*sum(1/s_i) over resolved s_i, and for CSR/Dia data (eigenvalues of M M^dag) 2*k*sqrt(n*eps64)*smax for the k numerically zero singular values plus the Gram-matrix auto-tidyup term 2*sum_i min(sqrt(n*t), n*t/(2*s_i)), t = auto_tidyup_atol, over all singular values (2*n*sqrt(n*eps64)*||M||_F + 2*n*sqrt(n*t) when n > 128); Dense rank-deficient operators keep the tight bound",
       "family": "unit_norm_idempotence",
       "id": "QT-QOBJ-003",
       "invariant": "unit() is idempotent on its own fixed point: applying unit() to an already-unit-normalized object under the same norm returns an object whose norm is still 1",
@@ -201,7 +201,7 @@
       "id": "QT-OPS-001",
       "invariant": "[Jx,Jy]=i*Jz and its two cyclic permutations, where Jx/Jy/Jz are each built via independent code paths from _jplus/_jz",
       "observation_point": "inside jmat(j, None), immediately before returning the (Jx,Jy,Jz) tuple",
-      "precondition": "any valid non-negative integer/half-integer spin quantum number j (int(2*j)==2*j and j>=0), any data layer, evaluated at jmat(j, None)'s tuple return",
+      "precondition": "any valid non-negative integer/half-integer spin quantum number j (int(2*j)==2*j and j>=0; a numpy integer j only when j*(j+1) fits its dtype, otherwise jmat's own j*(j+1) wraps, a dtype fact), any data layer, evaluated at jmat(j, None)'s tuple return",
       "rationale": "Jx, Jy, Jz are built from three independently-coded expressions (not from each other), so their commutators reproducing the third operator with the correct sign/prefactor is a nontrivial cross-construction check underlying every spin-chain and angular-momentum model in QuTiP",
       "scientific_quantity": "su(2) angular-momentum commutation algebra",
       "source": "qutip/core/operators.py",
@@ -213,7 +213,7 @@
       "id": "QT-OPS-002",
       "invariant": "(destroy(N) @ create(N) - create(N) @ destroy(N)) restricted to rows/columns 0..N-2 equals the identity on that block",
       "observation_point": "inside destroy(), immediately before returning, re-calling create() with the same N/offset/dtype",
-      "precondition": "any truncation size N>=2, any offset>=0, restricted to the interior block (Fock levels 0..N-2; also excluding level 0 when offset>0); the truncation boundaries are explicitly excluded as the well-known finite-truncation edge effect, not a defect; N and offset given as numpy integers only when (N+offset)^2 fits their dtype (otherwise integer wrap-around, a dtype fact, is possible)",
+      "precondition": "any truncation size N>=2, any offset>=0, restricted to the interior block (Fock levels 0..N-2; also excluding level 0 when offset>0); the truncation boundaries are explicitly excluded as the well-known finite-truncation edge effect, not a defect; N and offset given as numpy integers only when (N+offset)*(N+offset+1) fits their dtype (otherwise integer wrap-around, a dtype fact, is possible)",
       "rationale": "create()/destroy() are built via two independent qdiags calls placing sqrt-scaled diagonals (not create=destroy().dag()), so interior CCR agreement is a genuine cross-check that the two independently-coded diagonal placements are consistent",
       "scientific_quantity": "bosonic canonical commutation relation [a, a^dagger] = I",
       "source": "qutip/core/operators.py",

@@ -132,7 +132,8 @@ def _narrow_scalars(args, kwargs):
     ``eps_in`` is the eps of the narrowest floating scalar (>= eps64), for
     checkers whose library path computes in that dtype; ``wraps`` is True when
     a numpy integer scalar could wrap in the library's own sums/products
-    (bound (sum |n|)^2 against np.iinfo of the narrowest integer scalar), a
+    (bound N*(N+1), N = sum |n|, against np.iinfo of the narrowest integer
+    scalar), a
     dtype fact rather than a law violation.
     """
     import numpy as np
@@ -147,7 +148,9 @@ def _narrow_scalars(args, kwargs):
             imax = m if imax is None else min(imax, m)
         if isinstance(v, (int, np.integer)) and not isinstance(v, bool):
             ints += abs(int(v))
-    wraps = imax is not None and ints * ints > imax
+    # R13: the library forms n*(n+1) (jmat: j*(j+1); n^2 alone missed int8
+    # j=11, 11*12 = 132 > 127), so bound that product, not (sum |n|)^2.
+    wraps = imax is not None and ints * (ints + 1) > imax
 
     def py(v):
         return v.item() if isinstance(v, np.generic) and v.dtype.kind in "iufc" else v
@@ -324,6 +327,15 @@ def check_unit_idempotence(result, norm_kind):
                 # closed). Dense uses an exact SVD and keeps the tight bound.
                 k = sv.size - pos.size
                 tol += 2 * k * np.sqrt(n * eps64) * smax
+                # R13: matmul_csr auto-tidies the Gram matrix M M^dag, zeroing
+                # entries <= t = auto_tidyup_atol (absolute). That perturbs it
+                # by ||E||_2 <= n*t, which moves sqrt(s_i^2) by at most
+                # min(sqrt(n t), n t / (2 s_i)): a singular value 1e-7 (Gram
+                # entry 1e-14) is dropped whole. Same family as qutip#3025.
+                t = n * _tidy_atol()
+                if t > 0:
+                    tol += 2 * float(np.sum(np.minimum(
+                        np.sqrt(t), t / (2 * np.maximum(sv, np.finfo(float).tiny)))))
     elif (norm_kind == "tr" and len(result.shape) == 2
           and type(result.data).__name__ in ("CSR", "Dia")):
         # Large sparse operator, no SVD: an eigenvalue error of n*eps*smax^2
@@ -332,6 +344,8 @@ def check_unit_idempotence(result, norm_kind):
         import math
         n = max(result.shape)
         tol += 2 * n * math.sqrt(n * eps64) * float(result.norm("fro"))
+        # R13: Gram-matrix auto-tidyup (see above), sqrt(n t) per eigenvalue.
+        tol += 2 * n * math.sqrt(n * _tidy_atol())
     trigger_if(abs(n2 - 1) > tol, "QT-QOBJ-003")
 
 
