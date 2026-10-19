@@ -121,7 +121,7 @@ def concurrence(rho):
     lsum = sqrt_evals[3] - sqrt_evals[2] - sqrt_evals[1] - sqrt_evals[0]
     result = np.maximum(0, lsum)
     if _sc.enabled():
-        _sc.check_concurrence_bound(result)
+        _sc.check_concurrence_bound(result, rho=rho)
     return result
 
 

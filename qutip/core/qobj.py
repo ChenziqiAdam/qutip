@@ -897,7 +897,7 @@ class Qobj:
             return _data.norm.l2(self._data)**2
         result = _data.trace(_data.matmul(self._data, self._data)).real
         if _sc.enabled():
-            _sc.check_purity_bound(self.shape[0], result)
+            _sc.check_purity_bound(self.shape[0], result, rho=self)
         return result
 
     def full(

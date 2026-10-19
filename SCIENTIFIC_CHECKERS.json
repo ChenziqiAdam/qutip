@@ -33,7 +33,7 @@
       "id": "QT-QOBJ-003",
       "invariant": "unit() is idempotent on its own fixed point: applying unit() to an already-unit-normalized object under the same norm returns an object whose norm is still 1",
       "observation_point": "inside unit(), before returning, when the input's own norm was already within tolerance of 1",
-      "precondition": "any nonzero ket/bra/oper Qobj, any of the five supported norm choices, already normalized to within 1e-8 of unit norm before the re-call",
+      "precondition": "any nonzero ket/bra/oper Qobj, any of the five supported norm choices, whose norm after the first unit() call is at least 1e-8 (smaller results are skipped)",
       "rationale": "unit() is the standard normalization entry point used by solver code; idempotence failure means repeated normalization does not converge to a fixed point, silently injecting systematic bias in iterative solvers",
       "scientific_quantity": "normalized representative of a quantum state or operator",
       "source": "qutip/core/qobj.py",
@@ -196,7 +196,7 @@
       "symbol": "bures_dist / bures_angle"
     },
     {
-      "alarm": "max over the 3 cyclic pairs of (commutator - i*third_operator).norm('max') exceeds 50*eps64*max(1,Jz.norm('max'))*max(1,j)",
+      "alarm": "max over the 3 cyclic pairs of (commutator - i*third_operator).norm('max') exceeds 50*eps*max(1,Jz.norm('max'))*max(1,j), eps the unit round-off of j's dtype (eps64 for a Python or float64 j; jmat builds its elements in that dtype)",
       "family": "angular_momentum_commutation_algebra",
       "id": "QT-OPS-001",
       "invariant": "[Jx,Jy]=i*Jz and its two cyclic permutations, where Jx/Jy/Jz are each built via independent code paths from _jplus/_jz",
@@ -213,7 +213,7 @@
       "id": "QT-OPS-002",
       "invariant": "(destroy(N) @ create(N) - create(N) @ destroy(N)) restricted to rows/columns 0..N-2 equals the identity on that block",
       "observation_point": "inside destroy(), immediately before returning, re-calling create() with the same N/offset/dtype",
-      "precondition": "any truncation size N>=2, any offset>=0, restricted to the interior block (Fock levels 0..N-2; also excluding level 0 when offset>0); the truncation boundaries are explicitly excluded as the well-known finite-truncation edge effect, not a defect",
+      "precondition": "any truncation size N>=2, any offset>=0, restricted to the interior block (Fock levels 0..N-2; also excluding level 0 when offset>0); the truncation boundaries are explicitly excluded as the well-known finite-truncation edge effect, not a defect; N and offset given as numpy integers only when (N+offset)^2 fits their dtype (otherwise integer wrap-around, a dtype fact, is possible)",
       "rationale": "create()/destroy() are built via two independent qdiags calls placing sqrt-scaled diagonals (not create=destroy().dag()), so interior CCR agreement is a genuine cross-check that the two independently-coded diagonal placements are consistent",
       "scientific_quantity": "bosonic canonical commutation relation [a, a^dagger] = I",
       "source": "qutip/core/operators.py",

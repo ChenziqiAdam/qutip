@@ -121,6 +121,41 @@ def _noncanonical(*objs):
     return False
 
 
+def _narrow_scalars(args, kwargs):
+    """Unified narrow-dtype policy (R12) for the scalar arguments of a checker.
+
+    Qobj data is always complex128, so operands reach the checkers widened
+    exactly; only user-supplied numpy *scalars* (N, offset, j, alpha, ...)
+    keep a narrow dtype. Returns ``(args, kwargs, eps_in, wraps)``:
+    numpy scalars become exact Python numbers (the checker's own tolerance /
+    index arithmetic must not underflow in float16 or wrap in int8);
+    ``eps_in`` is the eps of the narrowest floating scalar (>= eps64), for
+    checkers whose library path computes in that dtype; ``wraps`` is True when
+    a numpy integer scalar could wrap in the library's own sums/products
+    (bound (sum |n|)^2 against np.iinfo of the narrowest integer scalar), a
+    dtype fact rather than a law violation.
+    """
+    import numpy as np
+
+    eps_in, ints, imax = eps64, 0, None
+    vals = list(args) + list(kwargs.values())
+    for v in vals:
+        if isinstance(v, np.inexact):
+            eps_in = max(eps_in, float(np.finfo(v.dtype).eps))
+        elif isinstance(v, np.integer):
+            m = int(np.iinfo(v.dtype).max)
+            imax = m if imax is None else min(imax, m)
+        if isinstance(v, (int, np.integer)) and not isinstance(v, bool):
+            ints += abs(int(v))
+    wraps = imax is not None and ints * ints > imax
+
+    def py(v):
+        return v.item() if isinstance(v, np.generic) and v.dtype.kind in "iufc" else v
+
+    return (tuple(py(a) for a in args), {k: py(v) for k, v in kwargs.items()},
+            eps_in, wraps)
+
+
 def _guard(checker_id):
     """Wrap a checker body so an internal error never disturbs production.
 
@@ -136,6 +171,9 @@ def _guard(checker_id):
             try:
                 if _noncanonical(*args, *kwargs.values()):
                     return
+                args, kwargs, _active.eps_in, wraps = _narrow_scalars(args, kwargs)
+                if wraps:
+                    return  # P: integer scalar may wrap in the library's arithmetic
                 with _quiet():
                     func(*args, **kwargs)
             except Exception:
@@ -165,19 +203,90 @@ def check_dag_involution(A, result):
     trigger_if(diff > tol, "QT-QOBJ-001")
 
 
+def _dm_tol(rho):
+    """Round-off tolerance of the valid-density-matrix gate (R12c), shared by
+    every checker whose manifest precondition says "valid density matrix".
+
+    Qobj data layers (Dense/CSR/Dia) all store complex128, so narrow user
+    arrays are widened exactly at construction and eps64 is the right unit; a
+    state that was *rounded* in float32 (trace off by ~d*eps32) is rejected
+    here, which is intended -- every gated law has an eps64 tolerance. d
+    entries are summed for the trace (each |rho_ij| <= 1 for a valid state),
+    and the library's requested sparse cleanup perturbs each entry by <=
+    tidy: tol = 20*eps64*d + d*tidy (derivation in check_purity_bound)."""
+    d = rho.shape[0]
+    return 20 * eps64 * d + d * _tidy_atol()
+
+
+def _negative_mass(rho):
+    """Total negative eigenvalue mass of the Hermitian part of ``rho``
+    (eigensolver round-off on a PSD input is ~ d*eps*||rho||)."""
+    import numpy as np
+    a = rho.full()
+    lam = np.linalg.eigvalsh((a + a.conj().T) / 2)
+    return float(-lam[lam < 0].sum())
+
+
+def _is_density_matrix(rho, psd=True):
+    """True when ``rho`` is a valid density matrix within round-off: a square
+    oper Qobj with |Tr rho - 1|, max|rho - rho^dag| and (``psd``) the negative
+    eigenvalue mass all <= _dm_tol(rho). Kets/bras return False; a checker
+    whose law is also stated for kets admits them itself. Scaled (2*rho,
+    3*Bell), indefinite or non-Hermitian operators are outside the stated
+    precondition of the gated laws, which then legitimately fail."""
+    if getattr(rho, "type", None) != "oper" or rho.shape[0] != rho.shape[1]:
+        return False
+    tol = _dm_tol(rho)
+    if abs(complex(rho.tr()) - 1) > tol:
+        return False  # not unit trace
+    if (rho - rho.dag()).norm("max") > tol:
+        return False  # not Hermitian
+    return not psd or _negative_mass(rho) <= tol
+
+
 @_guard("purity_simplex_bound")
-def check_purity_bound(dim, purity_value):
+def check_purity_bound(dim, purity_value, rho=None):
     """QT-QOBJ-002: for a valid density matrix of dimension d,
     1/d <= purity <= 1.
 
     Precondition: operator-type Qobj only (ket/bra branch is a local
-    tautology, out of scope per SANITIZER.md 5.6).
+    tautology, out of scope per SANITIZER.md 5.6), and ``rho`` must be a
+    density matrix. purity() returns Tr(A^2) for ANY operator (it neither
+    normalizes nor validates), so a scaled, non-Hermitian or indefinite
+    operator legitimately leaves [1/d, 1]; the hook passes ``rho`` and the
+    gate below enforces the stated precondition (R12b; ``rho=None`` keeps the
+    ungated form for direct calls).
+
+    Gate tolerances (d entries summed, each |rho_ij| <= 1 for a valid state;
+    the library's sparse cleanup perturbs each entry by <= tidy):
+      - unit trace: |Tr rho - 1| <= tol_tr = 20*eps64*d + d*tidy, chosen so
+        the induced shift of the bounds (<= 2*tol_tr/d resp. 2*tol_tr) stays
+        below the purity tolerance;
+      - Hermitian: max|rho - rho^dag| <= tol_tr (the anti-Hermitian part K
+        lowers Tr(A^2) by ||K||_F^2, negligible at that size);
+      - PSD (needed only for the upper bound, so the eigensolve runs only on
+        the alarm path): negative eigenvalue mass n <= tol_tr (eigensolver
+        round-off ~ d*eps*||rho||); Tr(A^2) <= ||A||_1^2 = (Tr A + 2n)^2, so
+        the upper tolerance is widened by 4n.
+    The lower bound needs only Hermitian + unit trace (Cauchy-Schwarz).
     """
     if dim < 1:
         return
-    tol = 50 * eps64 * dim + 3 * dim * _tidy_atol()
+    tidy = _tidy_atol()
+    tol = 50 * eps64 * dim + 3 * dim * tidy
     p = purity_value.real if hasattr(purity_value, "real") else purity_value
-    trigger_if(p < (1.0 / dim) - tol or p > 1.0 + tol, "QT-QOBJ-002")
+    if rho is None:
+        trigger_if(p < (1.0 / dim) - tol or p > 1.0 + tol, "QT-QOBJ-002")
+        return
+    if not _is_density_matrix(rho, psd=False):
+        return  # P: not a unit-trace Hermitian operator
+    if p < (1.0 / dim) - tol:
+        trigger("QT-QOBJ-002")
+    elif p > 1.0 + tol:
+        n = _negative_mass(rho)
+        if n > _dm_tol(rho):
+            return  # P: not positive semidefinite
+        trigger_if(p > 1.0 + tol + 4 * n, "QT-QOBJ-002")
 
 
 @_guard("unit_norm_idempotence")
@@ -519,6 +628,11 @@ def check_fidelity_symmetry(A, B, f_ab):
 
     if not _is_state_like(A, B):
         return
+    # R12c: manifest -- kets/bras any, operator arguments valid density
+    # matrices (an indefinite Hermitian A makes sqrtm(A) complex and the
+    # swapped evaluation legitimately differs).
+    if not all(q.type != "oper" or _is_density_matrix(q) for q in (A, B)):
+        return
     f_ba = _fidelity(B, A)
     tol = 500 * eps64 + 2 * _met_cond_tol(A, B)
     trigger_if(abs(f_ab - f_ba) > tol, "QT-MET-001")
@@ -531,8 +645,8 @@ def check_fidelity_self_identity(A):
     """
     from . import fidelity as _fidelity
 
-    if not _is_state_like(A):
-        return
+    if not _is_density_matrix(A):
+        return  # R12c: F(2 rho, 2 rho) = 2 legitimately
     f_aa = _fidelity(A, A)
     tol = 2000 * eps64 + 2 * _met_cond_tol(A, A)
     trigger_if(abs(f_aa - 1) > tol, "QT-MET-002")
@@ -584,8 +698,8 @@ def check_fuchs_van_de_graaf(A, B, f_ab):
     from . import tracedist as _tracedist
     import math
 
-    if not _is_state_like(A, B):
-        return
+    if not (_is_density_matrix(A) and _is_density_matrix(B)):
+        return  # R12c: the bounds hold for density matrices only (hook passes projected kets)
     d_ab = _tracedist(A, B)
     lo = 1 - f_ab
     f_clamped = min(1.0, max(0.0, f_ab))
@@ -610,8 +724,8 @@ def check_bures_functions_of_fidelity(A, B):
     from .core.operators import qeye
     from .random_objects import rand_unitary
 
-    if not _is_state_like(A, B):
-        return
+    if not (_is_density_matrix(A) and _is_density_matrix(B)):
+        return  # R12c: manifest precondition (hook passes projected kets)
     dim = A.shape[0]
     try:
         U = rand_unitary(dim)
@@ -654,7 +768,10 @@ def check_jmat_commutation(j, Jx, Jy, Jz):
     growth (matrix elements of the ladder operators scale like j).
     """
     scale = max(1.0, Jz.norm("max"))
-    tol = 50 * eps64 * scale * max(1.0, j)
+    # R12: jmat builds its matrix elements in j's own dtype (float16 j=100:
+    # J+ relative error 1.4e-3 = 2.9 eps16), so use the narrow scalar eps
+    eps = getattr(_active, "eps_in", eps64)
+    tol = 50 * eps * scale * max(1.0, j)
     for (A, B, C) in ((Jx, Jy, Jz), (Jy, Jz, Jx), (Jz, Jx, Jy)):
         comm = A @ B - B @ A
         diff = (comm - 1j * C).norm("max")
@@ -756,6 +873,10 @@ def check_expm_generator_unitary(N, magnitude, result, checker_id,
     scaling-and-squaring backward-stability error on an anti-Hermitian
     generator.
     """
+    # R12c: manifest precondition -- the tolerance was derived on the swept
+    # range |alpha|, |z| in [0.1, 15] only; outside it the law is not checked.
+    if not 0.1 <= abs(magnitude) <= 15:
+        return
     # Dense numpy arithmetic so the library's requested cleanup does not also
     # tidy the checker's own product.
     import numpy as np
@@ -1069,7 +1190,7 @@ def check_partial_transpose_trace(rho, result):
 # --- entropy.py: quantum information measures -------------------------------
 
 @_guard("concurrence_bound")
-def check_concurrence_bound(result):
+def check_concurrence_bound(result, rho=None):
     """QT-ENT-001: 0 <= concurrence(rho) <= 1 for any two-qubit state -- the
     lower bound is a local clamp (np.maximum(0, lsum), out of scope per
     SANITIZER.md 5.6); the upper bound is a nontrivial consequence of the
@@ -1081,6 +1202,11 @@ def check_concurrence_bound(result):
     conditioning tried). tol = 50*eps64 for headroom on the
     eigenvalue-conditioning-sensitive computation.
     """
+    # R12c: the hook passes the (ket2dm-promoted) state; the bound holds for
+    # valid density matrices only (concurrence(3*Bell) = 9). rho=None keeps
+    # the ungated form for direct calls.
+    if rho is not None and not _is_density_matrix(rho):
+        return
     tol = 50 * eps64
     val = result.real if hasattr(result, "real") else result
     trigger_if(val > 1.0 + tol, "QT-ENT-001")
@@ -1154,6 +1280,8 @@ def check_mutual_information_bounds(rho, selA, selB, result, base=None):
     from .core.qobj import ptrace as _ptrace
     from .entropy import entropy_vn as _entropy_vn
 
+    if not _is_density_matrix(rho):
+        return  # R12c: subadditivity needs a valid density matrix (3*Bell: I < 0)
     if base is None:
         base = _np.e
     # Three entropy eigensolves are subtracted, and their absolute roundoff
