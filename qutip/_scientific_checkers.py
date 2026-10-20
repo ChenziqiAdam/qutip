@@ -741,7 +741,16 @@ def check_fuchs_van_de_graaf(A, B, f_ab):
         return  # R12c: the bounds hold for density matrices only (hook passes projected kets)
     d_ab = _tracedist(A, B)
     lo = 1 - f_ab
-    f_clamped = min(1.0, max(0.0, f_ab))
+    # R15: the upper bound sqrt(1 - F^2) has an infinite slope at F = 1, so
+    # F's own rounding budget tF (the MET-001 budget: 500*eps plus the
+    # eigenvalue-sqrt conditioning term) moves it by up to sqrt(2*tF) there:
+    # evaluate it at the lowest F consistent with tF. Nearly equal full-rank
+    # states (D = 1.3e-10, true 1 - F ~ 1e-20, computed F = 1 + 2e-16) were
+    # outside a fixed tolerance although both F and D were exact to eps.
+    # Away from F = 1 the slack is ~F*tF/sqrt(1-F^2), i.e. still ~1e-13 for
+    # the rank-deficient (#3024) witnesses, whose tF has no conditioning term.
+    t_f = 500 * eps64 + 2 * _met_cond_tol(A, B)
+    f_clamped = min(1.0, max(0.0, f_ab - t_f))
     hi = math.sqrt(max(0.0, 1 - f_clamped ** 2))
     tol = 500 * eps64
     trigger_if(d_ab < lo - tol or d_ab > hi + tol, "QT-MET-004")
@@ -767,7 +776,7 @@ def check_bures_functions_of_fidelity(A, B):
         return  # R12c: manifest precondition (hook passes projected kets)
     dim = A.shape[0]
     try:
-        U = rand_unitary(dim)
+        U = rand_unitary(dim, seed=12345 + dim)  # deterministic: reproducible replays
         A2 = U * A * U.dag()
         B2 = U * B * U.dag()
     except Exception:
@@ -1364,7 +1373,7 @@ def _ss_size_factor(n):
 _SS_FWD_CAP = 1e-6
 
 
-def _ss_conditioning(A, method, n):
+def _ss_conditioning(A, method, n, power_tol=None):
     """Forward-error tolerance for a steady state of Liouvillian A. The
     returned rho solves L rho = 0 only up to the conditioning of L:
     forward error ~ eps*kappa (kappa = ||L|| / sigma_gap, sigma_gap the
@@ -1385,11 +1394,23 @@ def _ss_conditioning(A, method, n):
     p = 2 if method == "eigen" else 1
     tol = min(max(base * max(1.0, A.norm("max")), base * kappa ** p),
               _SS_FWD_CAP)
+    if method == "power" and power_tol is not None:
+        # R15: inverse iteration stops once max|L y| <= power_tol with max|y| = 1,
+        # an ABSOLUTE residual (not scaled by ||L||). The returned null vector is
+        # then only defined to ||L y||_2 / sigma_gap <= n*power_tol/sigma_gap
+        # (n^2 entries), and the rho + rho^dag, /tr step at most doubles that
+        # (tr >= max|y| for a PSD iterate). Same rationale as excluding
+        # "iterative": the caller's stopping criterion sets the accuracy. A
+        # physically identical Liouvillian in other time units (H, gamma x 1e-6)
+        # stops at relative residual ~1e-7 and returns min eigenvalue -1.9e-10.
+        # Still capped, so total-loss results (ISSUE_4: min eig -1.5) fire.
+        tol = max(tol, min(2 * n * float(power_tol) / max(gap, 1e-300),
+                           _SS_FWD_CAP))
     return tol, degenerate
 
 
 @_guard("steadystate_physicality")
-def check_steadystate_physicality(A, method, result):
+def check_steadystate_physicality(A, method, result, power_tol=None):
     """QT-SS-002: a returned steady state is a valid density matrix
     (unit-trace, PSD) regardless of solver method, for a Liouvillian A
     with a unique stationary state (numerical nullity 1). Methods
@@ -1404,7 +1425,7 @@ def check_steadystate_physicality(A, method, result):
     """
     if method not in _SS_RESIDUAL_METHODS:
         return
-    tol_fwd, degenerate = _ss_conditioning(A, method, result.shape[0])
+    tol_fwd, degenerate = _ss_conditioning(A, method, result.shape[0], power_tol)
     if degenerate:
         # non-unique stationary state: any null vector is a valid
         # "steady state" of L, so physicality is not defined for it

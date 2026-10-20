@@ -220,7 +220,10 @@ def steadystate(A, c_ops=[], *, method='direct', solver=None, **kwargs):
         raise ValueError(f"method {method} not supported.")
 
     if _sc.enabled():
-        _sc.check_steadystate_physicality(A, method, rho_ss)
+        # power: the caller's stopping tolerance bounds the attainable accuracy
+        _sc.check_steadystate_physicality(
+            A, method, rho_ss,
+            power_tol=kwargs.get("power_tol", 1e-12) if method == "power" else None)
 
     return rho_ss
 

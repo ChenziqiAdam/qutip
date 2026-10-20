@@ -172,7 +172,7 @@
       "symbol": "tracedist"
     },
     {
-      "alarm": "tracedist violates either side of the bound by more than 500*eps64",
+      "alarm": "tracedist violates either side of the bound by more than 500*eps64 (REPAIR 2026-10-25: the upper bound is evaluated at F - tF, tF = 500*eps64 + 2*conditioning term of the operator-branch fidelity (the QT-MET-001 budget), because sqrt(1-F^2) has infinite slope at F = 1; nearly equal full-rank states with computed F = 1+2e-16 and exact D ~ 1e-10 are inside the bound)",
       "family": "fuchs_van_de_graaf_bound",
       "id": "QT-MET-004",
       "invariant": "1 - fidelity(A,B) <= tracedist(A,B) <= sqrt(1 - fidelity(A,B)^2), the standard textbook bound both functions' own docstrings cite (Nielsen & Chuang)",
@@ -400,7 +400,7 @@
       "symbol": "entropy_mutual"
     },
     {
-      "alarm": "abs(rho_ss.tr()-1) exceeds 200*eps64*max(1,(n/4)**2), or min(rho_ss.eigenenergies()) < -200*eps64*max(1,(n/4)**2), n the Hilbert dimension of rho_ss",
+      "alarm": "abs(rho_ss.tr()-1) exceeds 200*eps64*max(1,(n/4)**2), or min(rho_ss.eigenenergies()) < -200*eps64*max(1,(n/4)**2), n the Hilbert dimension of rho_ss (raised to the conditioning forward-error tolerance of L, capped at 1e-6; REPAIR 2026-10-25: for method='power' additionally to 2*n*power_tol/sigma_gap, the accuracy implied by the caller's absolute stopping residual max|L y| <= power_tol (default 1e-12), under the same 1e-6 cap)",
       "family": "steadystate_physicality",
       "id": "QT-SS-002",
       "invariant": "rho_ss.tr() == 1 and min(rho_ss.eigenenergies()) >= 0",
