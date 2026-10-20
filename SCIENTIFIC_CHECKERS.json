@@ -28,7 +28,7 @@
       "symbol": "Qobj.purity"
     },
     {
-      "alarm": "abs(result.unit(norm).norm(norm) - 1) exceeds 50*eps64, plus for norm='tr' the singular-value conditioning term 2*eps64*smax^2*sum(1/s_i) over resolved s_i, and for CSR/Dia data (eigenvalues of M M^dag) 2*k*sqrt(n*eps64)*smax for the k numerically zero singular values plus the Gram-matrix auto-tidyup term 2*sum_i min(sqrt(n*t), n*t/(2*s_i)), t = auto_tidyup_atol, over all singular values (2*n*sqrt(n*eps64)*||M||_F + 2*n*sqrt(n*t) when n > 128); Dense rank-deficient operators keep the tight bound",
+      "alarm": "abs(result.unit(norm).norm(norm) - 1) exceeds 50*eps64, plus for norm='one'/'fro'/'l2' the summation term 2*m*eps64 (m = terms in the longest sum: nrows for 'one'; stored entries for 'fro'/'l2', i.e. CSR nnz, Dia num_diag*ncols, Dense nrows*ncols), plus for norm='tr' the singular-value conditioning term 2*eps64*smax^2*sum(1/s_i) over resolved s_i, and for CSR/Dia data (eigenvalues of M M^dag) 2*k*sqrt(n*eps64)*smax for the k numerically zero singular values plus the Gram-matrix auto-tidyup term 2*sum_i min(sqrt(n*t), n*t/(2*s_i)), t = auto_tidyup_atol, over all singular values (2*n*sqrt(n*eps64)*||M||_F + 2*n*sqrt(n*t) when n > 128); Dense rank-deficient operators keep the tight bound",
       "family": "unit_norm_idempotence",
       "id": "QT-QOBJ-003",
       "invariant": "unit() is idempotent on its own fixed point: applying unit() to an already-unit-normalized object under the same norm returns an object whose norm is still 1",

@@ -292,6 +292,25 @@ def check_purity_bound(dim, purity_value, rho=None):
         trigger_if(p > 1.0 + tol + 4 * n, "QT-QOBJ-002")
 
 
+def _summed_entries(qobj, norm_kind):
+    """Terms in the longest sum a data-layer norm accumulates: a column
+    (at most nrows entries) for 'one', every stored entry for 'fro'/'l2'
+    (CSR nnz, Dia num_diag*ncols, Dense nrows*ncols)."""
+    rows, cols = qobj.shape[0], qobj.shape[1]
+    if norm_kind == "one":
+        return rows
+    layer = type(qobj.data).__name__
+    try:
+        if layer == "CSR":
+            from .core.data import csr as _csr
+            return int(_csr.nnz(qobj.data))
+        if layer == "Dia":
+            return int(qobj.data.num_diag) * cols
+    except Exception:
+        pass
+    return rows * cols
+
+
 @_guard("unit_norm_idempotence")
 def check_unit_idempotence(result, norm_kind):
     """QT-QOBJ-003: unit() is idempotent on its own fixed point.
@@ -305,6 +324,12 @@ def check_unit_idempotence(result, norm_kind):
     again = result.unit(norm=norm_kind)
     n2 = again.norm(norm=norm_kind)
     tol = 50 * eps64
+    if norm_kind in ("one", "fro", "l2"):
+        # R14: one_csr/one_dia/one_dense sum each column term by term and
+        # frobenius/l2 (dznrm2, frobenius_dia) sum every stored entry, so each
+        # of the two norm evaluations carries the forward error gamma_m ~ m*eps
+        # of an m-term sum (n=10000 Dia identity, 'fro': 2.7e-14 > 50*eps).
+        tol += 2 * _summed_entries(result, norm_kind) * eps64
     if norm_kind == "tr" and len(result.shape) == 2 and max(result.shape) <= 128:
         # Trace norm of a sparse operator is sum(sqrt(eig(M M^dag))); each
         # retained singular value s_i carries rounding error ~ eps*smax^2/(2 s_i)
