@@ -594,6 +594,22 @@ def check_choi_chi_super_triangle(original, outrep):
         return
     dim = original.shape[0]
     tol = 400 * eps64 * (dim ** 4) * max(1.0, original.norm("max"))
+    t = _tidy_atol()
+    if t > 0:
+        # R18: a requested cleanup may zero every entry <= t of each
+        # intermediate (B^dag J, chi, B chi, B chi B^dag, the 1/dim rescale,
+        # the final difference, and for outrep="super" the two reshuffles).
+        # Each such error E has ||E||_F <= dim*t and reaches J' through the
+        # remaining products: gains s^3/dim, s^2/dim, s/dim, 1/dim, then 1
+        # for the rescale, the difference and the norm-preserving reshuffles
+        # (s = ||B||_2 of the Pauli basis). A weak operation (|J| ~ t) is
+        # legitimately cleaned to zero.
+        import numpy as _np
+        from .core.superop_reps import _superpauli_basis, _nq
+        s = float(_np.linalg.norm(
+            _superpauli_basis(_nq(original.dims)).full(), 2))
+        unit_gain_stages = 2 + (2 if outrep == "super" else 0)
+        tol += dim * t * ((s ** 3 + s ** 2 + s + 1) / dim + unit_gain_stages)
     try:
         if outrep == "choi":
             chi = _to_chi(original)
@@ -1172,6 +1188,9 @@ def check_bcsz_trace_preservation(N, D_pre_permute, Y_pre=None):
         # Error of Y^(-1/2) renormalisation scales with cond(Y) (rank-1 draws
         # reach cond ~6e4 while the base sweep saw cond <~ 100): scale beyond.
         tol *= max(1.0, float(_np.linalg.cond(_np.asarray(Y_pre))) / 100.0)
+    # R18: D is built as a Qobj, so a requested cleanup zeroes its entries
+    # <= t (sparse dtype); each Tr_out element sums N entries of D.
+    tol += N * _tidy_atol()
     trigger_if(diff > tol, "QT-RND-005")
 
 
@@ -1359,6 +1378,16 @@ def check_mutual_information_bounds(rho, selA, selB, result, base=None):
 # tolerance would only re-observe the user's own stopping criterion.
 _SS_RESIDUAL_METHODS = ("direct", "eigen", "svd", "power")
 
+# R18: method="direct" and method="iterative" run the same production branch
+# (_steadystate_direct(A, ..., method=solver)); the label does not decide the
+# accuracy, the linear solver does. The scipy.sparse.linalg iterative solvers
+# reachable through it stop at the caller's rtol/atol (scipy default rtol
+# 1e-5), so "direct" with one of them is excluded for the same reason as
+# "iterative". "power" keeps its own a posteriori stopping test on
+# max|L y| (power_tol), whatever inner solver it uses, so it stays checked.
+_SS_ITERATIVE_SOLVERS = ("gmres", "lgmres", "bicgstab", "bicg", "cg", "cgs",
+                         "qmr", "gcrotmk", "tfqmr", "minres", "lsqr", "lsmr")
+
 
 def _ss_size_factor(n):
     """Round-off growth with the Hilbert dimension n. The original sweep
@@ -1410,12 +1439,14 @@ def _ss_conditioning(A, method, n, power_tol=None):
 
 
 @_guard("steadystate_physicality")
-def check_steadystate_physicality(A, method, result, power_tol=None):
+def check_steadystate_physicality(A, method, result, power_tol=None,
+                                  solver=None):
     """QT-SS-002: a returned steady state is a valid density matrix
     (unit-trace, PSD) regardless of solver method, for a Liouvillian A
     with a unique stationary state (numerical nullity 1). Methods
-    "propagator" and "iterative" are excluded: their accuracy is set by
-    the caller's own stopping criterion.
+    "propagator" and "iterative" are excluded, and so is "direct" with an
+    iterative scipy solver (same branch as "iterative", R18): their
+    accuracy is set by the caller's own stopping criterion.
 
     Tolerance derivation: float64 sweeps (n in [2, 60], random and
     oscillator Liouvillians, 4 methods): worst trace violation 1116*eps64
@@ -1424,6 +1455,8 @@ def check_steadystate_physicality(A, method, result, power_tol=None):
     raised to the conditioning tolerance of L (see _ss_conditioning).
     """
     if method not in _SS_RESIDUAL_METHODS:
+        return
+    if method == "direct" and solver in _SS_ITERATIVE_SOLVERS:
         return
     tol_fwd, degenerate = _ss_conditioning(A, method, result.shape[0], power_tol)
     if degenerate:

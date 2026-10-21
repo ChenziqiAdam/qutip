@@ -124,7 +124,7 @@
       "symbol": "kraus_to_choi (paired with to_kraus)"
     },
     {
-      "alarm": "(roundtrip - original).norm('max') exceeds 400*eps64*dim^4*scale, or an exception during the round trip",
+      "alarm": "(roundtrip - original).norm('max') exceeds 400*eps64*dim^4*scale plus, under auto_tidyup, dim*t*((s^3+s^2+s+1)/dim + 2 (+2 for super input)) with t = auto_tidyup_atol and s = ||B||_2 of the Pauli basis (each intermediate may lose entries <= t; REPAIR 2026-10-27), or an exception during the round trip",
       "family": "choi_chi_super_triangle_consistency",
       "id": "QT-SUP-003",
       "invariant": "to_choi(to_chi(J)) == J for J in Choi form, and to_super(to_choi(to_chi(to_super(S)))) == S for S in super form -- the full triangle closes in both directions",
@@ -340,7 +340,7 @@
       "symbol": "rand_stochastic"
     },
     {
-      "alarm": "(Tr_out(D) - qeye(N)).norm('max') exceeds 200*eps64*N^2*max(1,cond(Y)/100), where Tr_out uses np.einsum('ijik->jk', D.full().reshape(N,N,N,N)) -- the same contraction pattern the production code itself uses to compute Y",
+      "alarm": "(Tr_out(D) - qeye(N)).norm('max') exceeds 200*eps64*N^2*max(1,cond(Y)/100) + N*t (t = auto_tidyup_atol when auto_tidyup is on, else 0: cleanup may zero entries <= t of D and each Tr_out element sums N of them; REPAIR 2026-10-27), where Tr_out uses np.einsum('ijik->jk', D.full().reshape(N,N,N,N)) -- the same contraction pattern the production code itself uses to compute Y",
       "family": "bcsz_trace_preservation",
       "id": "QT-RND-005",
       "invariant": "the partial trace over the output space of the intermediate (pre-permute) Choi-form matrix D equals the identity on the input space",
@@ -405,7 +405,7 @@
       "id": "QT-SS-002",
       "invariant": "rho_ss.tr() == 1 and min(rho_ss.eigenenergies()) >= 0",
       "observation_point": "inside steadystate(), immediately before returning rho_ss, for all 4 linear-algebra solver branches (including the eigen and svd branches that return early)",
-      "precondition": "any super-type Liouvillian A (or Hamiltonian+collapse-operator list from which one is built internally), method in {direct, eigen, svd, power}, and the Liouvillian has a unique stationary state (numerical nullity 1: second-smallest singular value of L above n*eps64*sigma_max, n the Hilbert dimension); with a degenerate stationary manifold any null vector is a valid steady state and the check is skipped. Methods 'propagator' and 'iterative' are excluded: their accuracy is set by the caller's own stopping criterion.",
+      "precondition": "any super-type Liouvillian A (or Hamiltonian+collapse-operator list from which one is built internally), method in {direct, eigen, svd, power}, and the Liouvillian has a unique stationary state (numerical nullity 1: second-smallest singular value of L above n*eps64*sigma_max, n the Hilbert dimension); with a degenerate stationary manifold any null vector is a valid steady state and the check is skipped. Methods 'propagator' and 'iterative' are excluded, and so is method 'direct' with an iterative scipy.sparse.linalg solver (gmres, lgmres, bicgstab, bicg, cg, cgs, qmr, gcrotmk, tfqmr, minres, lsqr, lsmr), which runs the same production branch as 'iterative': their accuracy is set by the caller's own stopping criterion (REPAIR 2026-10-27).",
       "rationale": "a solver could return a vector that is a null vector of L but not a valid density matrix (wrong trace normalization or a sign-indefinite combination of null vectors); unit trace and positive semidefiniteness are physical requirements independent of the solver's internal convergence criterion",
       "scientific_quantity": "physical validity (unit-trace, PSD) of a returned steady state",
       "source": "qutip/solver/steadystate.py",
