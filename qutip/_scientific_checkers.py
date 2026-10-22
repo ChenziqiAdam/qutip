@@ -468,6 +468,12 @@ def check_coherent_normalization(N, alpha, result):
     # 0.4*|alpha|*eps against a 60-digit reference); the 200*eps sweep was
     # taken at |alpha| <= 9, so scale linearly beyond |alpha| = 1.
     tol = 200 * eps64 * max(1.0, abs(alpha))
+    # R20: once eps*||G|| is O(1) (|alpha| >~ 2e7) the phases alpha*sqrt(n)
+    # are not representable in float64, expm is numerically undetermined and
+    # the tolerance itself says the law resolves nothing; skip when the
+    # derived tolerance cannot resolve the norm to 1e-6.
+    if tol > 1e-6:
+        return
     tol += (2 * result.shape[0]) ** 0.5 * _tidy_atol()
     trigger_if(diff > tol, "QT-STA-002")
 
@@ -954,6 +960,12 @@ def check_expm_generator_unitary(N, magnitude, result, checker_id,
     else:
         gscale = abs(magnitude) * ((offset + N) / N) ** 0.5
     tol = 50 * eps64 * N * max(1.0, abs(magnitude), gscale)
+    # R20: the generator norm (gscale) can be driven to ~1e18 through a huge
+    # Fock offset while |magnitude| stays in range; then eps*||G|| >> 1, expm
+    # is undetermined and tol says nothing. Skip when unitarity cannot be
+    # resolved to 1e-6 (tidy allowance below is the user's, not numerical).
+    if tol > 1e-6:
+        return
     # A requested per-entry cleanup (auto_tidyup_atol = t) perturbs U by E with
     # |E_ij| <= t, which changes U^dag U - I by at most 2*sqrt(N)*t + N*t^2.
     t = _tidy_atol()

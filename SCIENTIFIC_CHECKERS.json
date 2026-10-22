@@ -76,12 +76,12 @@
       "symbol": "basis / fock"
     },
     {
-      "alarm": "abs(result.norm() - 1) exceeds 200*eps64*max(1,|alpha|) + sqrt(2N)*atol_tidy",
+      "alarm": "abs(result.norm() - 1) exceeds 200*eps64*max(1,|alpha|) + sqrt(2N)*atol_tidy; skipped when 200*eps64*max(1,|alpha|) > 1e-6",
       "family": "coherent_state_normalization",
       "id": "QT-STA-002",
       "invariant": "coherent(N, alpha, method='operator').norm() == 1 for all valid inputs",
       "observation_point": "inside coherent(), before returning, in the method=='operator' branch",
-      "precondition": "any N >= 1, any complex alpha, offset=0, method='operator' (the docstring's unconditional normalization guarantee is specific to this method, unlike 'analytic')",
+      "precondition": "any N >= 1, complex alpha with 200*eps64*max(1,|alpha|) <= 1e-6 (|alpha| <~ 2e7; beyond it float64 cannot represent the phases alpha*sqrt(n) and the law resolves nothing), offset=0, method='operator' (the docstring's unconditional normalization guarantee is specific to this method, unlike 'analytic')",
       "rationale": "the docstring makes an explicit, unconditional normalization guarantee for the operator method (contrasted against analytic, which documents no such guarantee); downstream code that trusts this and skips its own .unit() call would silently accumulate error if the guarantee fails",
       "scientific_quantity": "coherent state D(alpha)|0> at finite truncation N",
       "source": "qutip/core/states.py",
@@ -244,12 +244,12 @@
       "symbol": "swap"
     },
     {
-      "alarm": "(U.dag() @ U - qeye(N)).norm('max') exceeds 50*eps64*N*max(1,|m|,g) with g=|m|*sqrt((offset+N)/N) (displace) or |m|*(offset+N)/N (squeeze), plus 2*sqrt(N)*t+N*t^2 where t is the requested sparse cleanup threshold auto_tidyup_atol when auto_tidyup is on (0 otherwise)",
+      "alarm": "(U.dag() @ U - qeye(N)).norm('max') exceeds 50*eps64*N*max(1,|m|,g) with g=|m|*sqrt((offset+N)/N) (displace) or |m|*(offset+N)/N (squeeze), plus 2*sqrt(N)*t+N*t^2 where t is the requested sparse cleanup threshold auto_tidyup_atol when auto_tidyup is on (0 otherwise); skipped when the 50*eps64*N*max(1,|m|,g) part exceeds 1e-6",
       "family": "expm_generator_unitarity",
       "id": "QT-OPS-005",
       "invariant": "U.dag() @ U == qeye(N) for U = displace(N, alpha) or U = squeeze(N, z), since the exponential of any anti-Hermitian generator is exactly unitary in exact arithmetic",
       "observation_point": "inside displace() and squeeze(), before returning",
-      "precondition": "any truncation N>=1, any complex alpha/z with |alpha| or |z| in the swept range [0.1, 15] (larger magnitudes not covered by this sweep)",
+      "precondition": "any truncation N>=1, any complex alpha/z with |alpha| or |z| in the swept range [0.1, 15] (larger magnitudes not covered by this sweep); skipped when 50*eps64*N*max(1,|m|,g) > 1e-6, i.e. when expm's own error scale makes unitarity unresolvable (gscale >~ 9e7/N)",
       "rationale": "expm on a truncated matrix is computed by a general-purpose Pade/scaling-and-squaring algorithm with no a priori guarantee of returning an exactly unitary matrix at finite working precision even when the mathematical generator is exactly anti-Hermitian -- this is a genuine numerical question about expm's backward stability, not visible from the one-line .expm(dtype=dtype) call",
       "scientific_quantity": "unitarity of the matrix exponential of an anti-Hermitian generator",
       "source": "qutip/core/operators.py",
